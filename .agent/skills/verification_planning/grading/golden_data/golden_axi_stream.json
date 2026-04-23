@@ -1,0 +1,52 @@
+{
+  "protocol": "AXI4-Stream",
+  "mandatory_requirements": [
+    {
+      "keyword": "tvalid handshake",
+      "description": "TVALID must remain High until TREADY is High"
+    },
+    {
+      "keyword": "tvalid reset",
+      "description": "TVALID must be Low during reset"
+    },
+    {
+      "keyword": "tready wait",
+      "description": "TREADY can be asserted before TVALID"
+    },
+    {
+      "keyword": "tdata stability",
+      "description": "Payload/signals must be stable while TVALID is High"
+    },
+    {
+      "keyword": "tlast boundary",
+      "description": "TLAST must indicate packet boundaries"
+    },
+    {
+      "keyword": "tkeep null",
+      "description": "TKEEP=0 indicates a null byte"
+    },
+    {
+      "keyword": "tstrb position",
+      "description": "TSTRB=0 indicates a position byte"
+    },
+    {
+      "keyword": "reset deassertion",
+      "description": "Reset deassertion must be synchronous"
+    },
+    {
+      "keyword": "tid isolation",
+      "description": "Stream interleaving and uniqueness via TID"
+    },
+    {
+      "keyword": "negative scenario",
+      "description": "Explicit modeling of protocol violations"
+    },
+    {
+      "keyword": "performance metric",
+      "description": "Latency and throughput sign-off criteria"
+    }
+  ],
+  "expected_signals": [
+    "ACLK", "ARESETn", "TVALID", "TREADY", "TDATA", "TLAST", "TKEEP", "TSTRB", "TID", "TDEST", "TUSER"
+  ]
+}
