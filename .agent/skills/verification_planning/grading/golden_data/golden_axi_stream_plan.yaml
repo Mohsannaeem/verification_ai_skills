@@ -1,0 +1,59 @@
+project: "Arm AMBA AXI4-Stream Golden Reference"
+version: "1.0"
+protocol: "AXI4-Stream"
+
+test_requirements:
+  - id: "GOLD_HANDSHAKE_STABILITY"
+    name: "TVALID/TDATA Stability"
+    description: "Once TVALID is asserted, TDATA, TSTRB, TKEEP, TLAST, TID, TDEST, and TUSER must remain stable until TREADY is asserted."
+  - id: "GOLD_HANDSHAKE_PRECEDENCE"
+    name: "TVALID/TREADY Precedence"
+    description: "Transmitter must NOT wait for TREADY to assert TVALID. Receiver MAY wait for TVALID to assert TREADY."
+  - id: "GOLD_RESET_DRIVING"
+    name: "Reset TVALID State"
+    description: "TVALID must be driven LOW within one clock cycle of ARESETn assertion and remain LOW until one cycle after deassertion."
+  - id: "GOLD_NULL_BYTE_SUPPRESSION"
+    name: "TKEEP=0 Null Byte Logic"
+    description: "Bytes with TKEEP=0 are null bytes and can be removed/inserted by interconnects without changing the data stream meaning."
+  - id: "GOLD_POSITION_BYTE_INTEGRITY"
+    name: "TSTRB=0 Position Byte Logic"
+    description: "Bytes with TKEEP=1/TSTRB=0 are position bytes. Their relative position to data bytes must be preserved."
+  - id: "GOLD_TLAST_PRESERVATION"
+    name: "Packet Boundary Integrity"
+    description: "TLAST must be preserved between source and destination. It indicates the final transfer of a packet."
+  - id: "GOLD_ID_STREAM_ISOLATION"
+    name: "TID Stream Independence"
+    description: "Interleaving of transfers with different TID values is permitted. Merging transfers of different TIDs is strictly forbidden."
+
+test_cases:
+  - id: "TC_STALL_BACKPRESSURE"
+    scenario: "Drive TVALID High and keep TREADY Low for 10+ cycles. Verify signal stability."
+    mapping: ["GOLD_HANDSHAKE_STABILITY"]
+  - id: "TC_ZERO_LATENCY_BURST"
+    scenario: "Assert TVALID and TREADY simultaneously for back-to-back transfers (100% throughput)."
+    mapping: ["GOLD_HANDSHAKE_PRECEDENCE"]
+  - id: "TC_EMPTY_PACKET"
+    scenario: "Send a transfer with TLAST asserted but all TKEEP bits deasserted (Empty Packet)."
+    mapping: ["GOLD_TLAST_PRESERVATION"]
+  - id: "TC_SPARSE_BYTE_QUALIFIERS"
+    scenario: "Send packets with random patterns of TKEEP/TSTRB to exercise data/position/null byte handling."
+    mapping: ["GOLD_NULL_BYTE_SUPPRESSION", "GOLD_POSITION_BYTE_INTEGRITY"]
+  - id: "TC_RESET_DURING_TRANSFER"
+    scenario: "Assert ARESETn while TVALID is High. Verify immediate drop of TVALID and recovery protocol."
+    mapping: ["GOLD_RESET_DRIVING"]
+
+negative_scenarios:
+  - id: "NEG_TVALID_DROPOUT"
+    scenario: "Master drops TVALID before TREADY is asserted. Monitor must trigger protocol violation error."
+  - id: "NEG_TDATA_CHANGE"
+    scenario: "Master changes TDATA while waiting for TREADY. Monitor must trigger stability error."
+  - id: "NEG_ILLEGAL_QUALIFIER"
+    scenario: "Drive TKEEP=Low and TSTRB=High (Reserved Combination). Verify detection."
+
+coverage_groups:
+  - name: "cg_handshake_stalls"
+    description: "Bins for 0, 1, 2, 3-5, 6-10, and 10+ wait cycles for TREADY."
+  - name: "cg_byte_type_mix"
+    description: "Cross coverage of TKEEP/TSTRB values across all bytes in TDATA (Data vs Position vs Null)."
+  - name: "cg_packet_length"
+    description: "Coverage of 1-transfer, 2-16 transfer, and 1024+ transfer packets."
