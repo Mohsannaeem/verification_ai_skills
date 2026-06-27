@@ -1,0 +1,111 @@
+name: Sub-Repo Pull Requests
+
+# Creates PRs from dev → main on each standalone sub-repo when dev has new commits.
+# If a PR already exists it is left open (new commits auto-appear on it).
+#
+# Triggers:
+#   - Daily at 19:00 UTC (midnight Pakistan Standard Time)
+#   - Manual via workflow_dispatch
+#
+# Secret required: EDA_BUDDY_PAT
+#   Fine-grained PAT with Contents + Pull requests (read+write)
+#   on both eda_buddy and dummy_uvm repos.
+
+on:
+  schedule:
+    - cron: '0 19 * * *'   # 19:00 UTC = midnight PKT
+
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual PR creation'
+        required: false
+        default: 'Manual trigger'
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  pr-eda-buddy:
+    name: PR → eda_buddy (dev → main)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR if dev is ahead of main
+        env:
+          GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
+        run: |
+          AHEAD=$(gh api repos/Mohsannaeem/eda_buddy/compare/main...dev --jq '.ahead_by')
+          echo "eda_buddy: dev is ${AHEAD} commit(s) ahead of main"
+
+          if [ "$AHEAD" = "0" ]; then
+            echo "Nothing to do — dev is up to date with main."
+            exit 0
+          fi
+
+          EXISTING=$(gh pr list \
+            --repo Mohsannaeem/eda_buddy \
+            --state open --base main --head dev \
+            --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already open — ${AHEAD} commit(s) pending review."
+          else
+            gh pr create \
+              --repo Mohsannaeem/eda_buddy \
+              --title "release: EDA Buddy $(date +'%Y-%m-%d')" \
+              --body "## EDA Buddy — dev → main
+
+          ${AHEAD} commit(s) on \`dev\` ready for release.
+
+          | | |
+          |---|---|
+          | Triggered by | ${{ github.event_name }} |
+          | Created at   | $(date -u +'%Y-%m-%d %H:%M UTC') |
+
+          ### Checklist
+          - [ ] README is accurate
+          - [ ] Example YAMLs match current schema
+          - [ ] \`requirements.txt\` is up to date
+          - [ ] No machine-specific paths in scripts" \
+              --base main \
+              --head dev
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  pr-dummy-uvm:
+    name: PR → dummy_uvm (dev → master)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR if dev is ahead of master
+        env:
+          GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
+        run: |
+          AHEAD=$(gh api repos/Mohsannaeem/dummy_uvm/compare/master...dev --jq '.ahead_by')
+          echo "dummy_uvm: dev is ${AHEAD} commit(s) ahead of master"
+
+          if [ "$AHEAD" = "0" ]; then
+            echo "Nothing to do — dev is up to date with master."
+            exit 0
+          fi
+
+          EXISTING=$(gh pr list \
+            --repo Mohsannaeem/dummy_uvm \
+            --state open --base master --head dev \
+            --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already open — ${AHEAD} commit(s) pending review."
+          else
+            gh pr create \
+              --repo Mohsannaeem/dummy_uvm \
+              --title "release: Dummy UVM $(date +'%Y-%m-%d')" \
+              --body "## Dummy UVM — dev → master
+
+          ${AHEAD} commit(s) on \`dev\` ready for release.
+
+          | | |
+          |---|---|
+          | Triggered by | ${{ github.event_name }} |
+          | Created at   | $(date -u +'%Y-%m-%d %H:%M UTC') |" \
+              --base master \
+              --head dev
+          fi
