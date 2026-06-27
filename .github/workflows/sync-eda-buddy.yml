@@ -56,7 +56,10 @@ jobs:
             --exclude='__pycache__' \
             --exclude='*.pyc' \
             --exclude='*.pyo' \
+            --exclude='project_structure.yaml' \
             source/eda_buddy/ eda_buddy_repo/
+          # project_structure.yaml is machine-specific — push the template from examples/ instead
+          cp source/eda_buddy/examples/project_structure.yaml eda_buddy_repo/project_structure.yaml
 
       - name: Check for changes
         id: diff
