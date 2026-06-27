@@ -46,6 +46,9 @@ jobs:
           ref: dev
           path: dummy_uvm_repo
 
+      - name: Debug — list checked-out source
+        run: ls -la source/ && ls -la source/dummy_uvm/ || echo "dummy_uvm not found in source"
+
       - name: Sync dummy_uvm/ contents
         run: |
           rsync -av --delete \
