@@ -61,15 +61,20 @@ jobs:
           # project_structure.yaml is machine-specific — push the template from examples/ instead
           cp source/eda_buddy/examples/project_structure.yaml eda_buddy_repo/project_structure.yaml
 
-      - name: Check for changes
+      - name: Stage changes and check for differences
         id: diff
         run: |
           cd eda_buddy_repo
-          git diff --quiet && git diff --staged --quiet && echo "no_changes=true" >> $GITHUB_OUTPUT || echo "no_changes=false" >> $GITHUB_OUTPUT
+          git add -A
+          if git diff --staged --quiet; then
+            echo "no_changes=true"  >> $GITHUB_OUTPUT
+          else
+            echo "no_changes=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Skip if nothing changed
         if: steps.diff.outputs.no_changes == 'true'
-        run: echo "No changes detected in eda_buddy/ — skipping PR creation."
+        run: echo "No changes detected — standalone repo is already up to date."
 
       - name: Create branch and open PR
         if: steps.diff.outputs.no_changes == 'false'
@@ -86,7 +91,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "$BRANCH"
-          git add -A
           git commit -m "sync: update from verification_ai_skills @ ${SOURCE_COMMIT:0:7}
 
           Source commit : ${SOURCE_COMMIT}
