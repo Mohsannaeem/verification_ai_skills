@@ -1,0 +1,8 @@
+[submodule "eda_buddy"]
+	path = eda_buddy
+	url = git@github.com:Mohsannaeem/eda_buddy.git
+	branch = main
+[submodule "dummy_uvm"]
+	path = dummy_uvm
+	url = git@github.com:Mohsannaeem/dummy_uvm.git
+	branch = master
