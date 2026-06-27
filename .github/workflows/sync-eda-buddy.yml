@@ -5,13 +5,13 @@ name: Sync EDA Buddy
 #   2. Manual trigger from the GitHub Actions UI (workflow_dispatch)
 #
 # What it does:
-#   - Copies eda_buddy/ from this repo into a new branch on Mohsannaeem/eda_buddy
-#   - Opens a Pull Request for review before the changes land on main
+#   - Syncs eda_buddy/ into the `dev` branch of Mohsannaeem/eda_buddy
+#   - Commits accumulate on `dev` — open a PR to main manually when ready to release
 #
 # Setup (one-time):
 #   1. Create a GitHub Personal Access Token (PAT):
 #      GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
-#      Permissions needed: Contents (read+write) and Pull requests (read+write) on eda_buddy repo
+#      Permissions needed: Contents (read+write) on eda_buddy repo
 #   2. Add the PAT as a secret in THIS repo:
 #      Settings → Secrets and variables → Actions → New secret
 #      Name: EDA_BUDDY_PAT   Value: <your PAT>
@@ -33,7 +33,7 @@ on:
 
 jobs:
   sync:
-    name: Sync to eda_buddy repo
+    name: Sync to eda_buddy dev branch
     runs-on: ubuntu-latest
 
     steps:
@@ -42,11 +42,12 @@ jobs:
         with:
           path: source
 
-      - name: Checkout eda_buddy standalone repo
+      - name: Checkout eda_buddy standalone repo (dev branch)
         uses: actions/checkout@v5
         with:
           repository: Mohsannaeem/eda_buddy
           token: ${{ secrets.EDA_BUDDY_PAT }}
+          ref: dev
           path: eda_buddy_repo
 
       - name: Sync eda_buddy/ contents
@@ -74,47 +75,18 @@ jobs:
 
       - name: Skip if nothing changed
         if: steps.diff.outputs.no_changes == 'true'
-        run: echo "No changes detected — standalone repo is already up to date."
+        run: echo "No changes detected — dev branch is already up to date."
 
-      - name: Create branch and open PR
+      - name: Commit and push to dev
         if: steps.diff.outputs.no_changes == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
         run: |
           cd eda_buddy_repo
 
-          BRANCH="sync/$(date +%Y-%m-%d-%H%M%S)"
           SOURCE_COMMIT="${{ github.sha }}"
           SOURCE_MSG="${{ github.event.head_commit.message || github.event.inputs.reason }}"
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git checkout -b "$BRANCH"
-          git commit -m "sync: update from verification_ai_skills @ ${SOURCE_COMMIT:0:7}
-
-          Source commit : ${SOURCE_COMMIT}
-          Commit message: ${SOURCE_MSG}"
-
-          git push origin "$BRANCH"
-
-          gh pr create \
-            --title "sync: EDA Buddy update $(date +%Y-%m-%d)" \
-            --body "## Automated sync from \`verification_ai_skills\`
-
-          | Field | Value |
-          |---|---|
-          | Source repo | \`Mohsannaeem/verification_ai_skills\` |
-          | Source commit | \`${SOURCE_COMMIT:0:7}\` |
-          | Commit message | ${SOURCE_MSG} |
-          | Synced at | $(date -u '+%Y-%m-%d %H:%M UTC') |
-
-          ### Review checklist
-          - [ ] README is up to date
-          - [ ] Example YAMLs reflect current schema
-          - [ ] No project-specific paths leaked into scripts
-          - [ ] \`requirements.txt\` is current
-
-          > This PR was opened automatically. Merge when ready." \
-            --base main \
-            --head "$BRANCH"
+          git commit -m "sync: ${SOURCE_MSG} (${SOURCE_COMMIT:0:7})"
+          git push origin dev
