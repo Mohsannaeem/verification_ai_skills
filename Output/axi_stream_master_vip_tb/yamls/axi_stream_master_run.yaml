@@ -1,0 +1,169 @@
+# EDA Buddy Runtime Config (Auto-Generated)
+runtime:
+  common_args:
+  - +UVM_VERBOSITY=UVM_MEDIUM
+  - +UVM_MAX_QUIT_COUNT=10
+  - +UVM_TIMEOUT=15000000
+  tool_args:
+    vcs:
+    - -l simv.log
+    questa:
+    - -batch
+    - -do 'run -all; quit'
+  debug:
+    gui_mode: false
+    dump_waves: true
+    wave_format: fsdb
+    quiet_sim: false
+test_config:
+  active_test: axi_stream_master_base_test
+  entry_points:
+  - name: axi_stream_master_base_test
+    description: 'Test: axi_stream_master_base_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_001_test
+    description: 'Test: axi_stream_master_tc_mst_001_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_002_test
+    description: 'Test: axi_stream_master_tc_mst_002_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_003_test
+    description: 'Test: axi_stream_master_tc_mst_003_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_004_test
+    description: 'Test: axi_stream_master_tc_mst_004_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_005_test
+    description: 'Test: axi_stream_master_tc_mst_005_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_006_test
+    description: 'Test: axi_stream_master_tc_mst_006_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_007_test
+    description: 'Test: axi_stream_master_tc_mst_007_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_008_test
+    description: 'Test: axi_stream_master_tc_mst_008_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_009_test
+    description: 'Test: axi_stream_master_tc_mst_009_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_010_test
+    description: 'Test: axi_stream_master_tc_mst_010_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_011_test
+    description: 'Test: axi_stream_master_tc_mst_011_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_012_test
+    description: 'Test: axi_stream_master_tc_mst_012_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_013_test
+    description: 'Test: axi_stream_master_tc_mst_013_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_014_test
+    description: 'Test: axi_stream_master_tc_mst_014_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_015_test
+    description: 'Test: axi_stream_master_tc_mst_015_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_016_test
+    description: 'Test: axi_stream_master_tc_mst_016_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_017_test
+    description: 'Test: axi_stream_master_tc_mst_017_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_018_test
+    description: 'Test: axi_stream_master_tc_mst_018_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_019_test
+    description: 'Test: axi_stream_master_tc_mst_019_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_020_test
+    description: 'Test: axi_stream_master_tc_mst_020_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_021_test
+    description: 'Test: axi_stream_master_tc_mst_021_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_022_test
+    description: 'Test: axi_stream_master_tc_mst_022_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_023_test
+    description: 'Test: axi_stream_master_tc_mst_023_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_024_test
+    description: 'Test: axi_stream_master_tc_mst_024_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_025_test
+    description: 'Test: axi_stream_master_tc_mst_025_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_026_test
+    description: 'Test: axi_stream_master_tc_mst_026_test'
+    seed: random
+    user_args: []
+  - name: axi_stream_master_tc_mst_027_test
+    description: 'Test: axi_stream_master_tc_mst_027_test'
+    seed: random
+    user_args: []
+# Hooks run before/after each simulation for this component only.
+# Leave blank to skip. Value is any shell command or path to a script.
+hooks:
+  pre:  ""
+  post: ""
+groups:
+  smoke_test:
+  - axi_stream_master_base_test
+  regression:
+  - axi_stream_master_base_test
+  - axi_stream_master_tc_mst_001_test
+  - axi_stream_master_tc_mst_002_test
+  - axi_stream_master_tc_mst_003_test
+  - axi_stream_master_tc_mst_004_test
+  - axi_stream_master_tc_mst_005_test
+  - axi_stream_master_tc_mst_006_test
+  - axi_stream_master_tc_mst_007_test
+  - axi_stream_master_tc_mst_008_test
+  - axi_stream_master_tc_mst_009_test
+  - axi_stream_master_tc_mst_010_test
+  - axi_stream_master_tc_mst_011_test
+  - axi_stream_master_tc_mst_012_test
+  - axi_stream_master_tc_mst_013_test
+  - axi_stream_master_tc_mst_014_test
+  - axi_stream_master_tc_mst_015_test
+  - axi_stream_master_tc_mst_016_test
+  - axi_stream_master_tc_mst_017_test
+  - axi_stream_master_tc_mst_018_test
+  - axi_stream_master_tc_mst_019_test
+  - axi_stream_master_tc_mst_020_test
+  - axi_stream_master_tc_mst_021_test
+  - axi_stream_master_tc_mst_022_test
+  - axi_stream_master_tc_mst_023_test
+  - axi_stream_master_tc_mst_024_test
+  - axi_stream_master_tc_mst_025_test
+  - axi_stream_master_tc_mst_026_test
+  - axi_stream_master_tc_mst_027_test

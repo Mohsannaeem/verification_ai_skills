@@ -1,0 +1,96 @@
+# ==============================================================================
+# AMBA AXI-Stream Protocol Verification Plan (Master Role)
+# Version: 1.9 (Exhaustive Mastery - No Placeholders)
+# ==============================================================================
+
+project: "AXI-Stream Enterprise Mastery"
+version: "1.9"
+verification_role: "Master"
+
+uvm_environment_diagram: |
+  graph TD
+    subgraph "UVM Testbench"
+      Agent["axis_agent"]
+      Drv["axis_driver"]
+      Mon["axis_monitor"]
+      Sbd["axis_scoreboard"]
+      Agent --> Drv
+      Agent --> Mon
+      Mon --> Sbd
+    end
+    Drv --> DUT["AXI-Stream Slave"]
+
+directory_structure:
+  root: "verif/axis/"
+  folders:
+    - sv: "axis_driver.sv, axis_monitor.sv, axis_agent.sv, axis_if.sv"
+    - tests: "base_test.sv, stress_test.sv"
+
+code_snippets:
+  - title: "Monitor Protocol Check"
+    code: |
+      if (vif.TVALID && vif.TREADY) begin
+        // Perform sample
+        tr.data = vif.TDATA;
+        tr.last = vif.TLAST;
+      end
+
+test_requirements:
+  - {id: "REQ_HS_01", feature: "Handshake", sub_feature: "Stability", name: "Master Data Stability", description: "Master shall not change TDATA/TSTRB/TKEEP/TLAST/TID/TDEST/TUSER while TVALID is HIGH and TREADY is LOW."}
+  - {id: "REQ_HS_02", feature: "Handshake", sub_feature: "Timing", name: "Valid Independence", description: "Master must not wait for TREADY to be asserted before asserting TVALID."}
+  - {id: "REQ_RST_01", feature: "Reset", sub_feature: "Suppression", name: "Reset TVALID LOW", description: "TVALID must be driven LOW at least one cycle before reset deassertion and remain LOW during reset."}
+  - {id: "REQ_RST_02", feature: "Reset", sub_feature: "Recovery", name: "Post-Reset Latency", description: "Master must wait at least 1 cycle after ARESETn goes HIGH before driving TVALID."}
+  - {id: "REQ_PKT_01", feature: "Packet", sub_feature: "ID", name: "TID Consistency", description: "TID must remain constant within a packet (between TLAST pulses)."}
+  - {id: "REQ_PKT_02", feature: "Packet", sub_feature: "DEST", name: "TDEST Consistency", description: "TDEST must remain constant within a packet (between TLAST pulses)."}
+  - {id: "REQ_QUAL_01", feature: "Qualifiers", sub_feature: "TKEEP", name: "Null Identification", description: "TKEEP bits identify which data bytes are processed."}
+  - {id: "REQ_QUAL_02", feature: "Qualifiers", sub_feature: "TSTRB", name: "Strobe Logic", description: "TSTRB identifies data vs position bytes."}
+  - {id: "REQ_PWR_01", feature: "Power", sub_feature: "AXI5", name: "Wakeup Activity", description: "TWAKEUP must indicate activity and be synchronous to ACLK."}
+  - {id: "REQ_PWR_02", feature: "Power", sub_feature: "AXI5", name: "Wakeup Protocol", description: "If TVALID and TWAKEUP are concurrent, TWAKEUP must hold until handshake."}
+
+test_cases:
+  - {id: "TC_HS_01", scenario: "Valid-Before-Ready: Master drives TVALID=1, Slave stays 0 for 5 cycles. Verify stability.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_HS_02", scenario: "Ready-Before-Valid: Slave drives TREADY=1. Master asserts valid. verify 1 cycle handshake.", mapping: ["REQ_HS_02"]}
+  - {id: "TC_HS_03", scenario: "Back-to-Back: Mastery throughput test with infinite 1-cycle beats.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_HS_04", scenario: "Master Stall: Master deasserts TVALID mid-packet. Verify Slave waits.", mapping: ["REQ_HS_02"]}
+  - {id: "TC_RST_01", scenario: "Reset Suppression: Verify TVALID goes LOW 0 cycles after ARESETn assertion.", mapping: ["REQ_RST_01"]}
+  - {id: "TC_RST_02", scenario: "Post-Reset Timing: Attempt TVALID=1 on same cycle as ARESETn=1. Fail check.", mapping: ["REQ_RST_02"]}
+  - {id: "TC_PKT_01", scenario: "Packet Length 1: Single beat with TLAST=1.", mapping: ["REQ_PKT_01"]}
+  - {id: "TC_PKT_02", scenario: "Packet Length 1024: Long packet with TID/TDEST stable throughout.", mapping: ["REQ_PKT_01", "REQ_PKT_02"]}
+  - {id: "TC_PKT_03", scenario: "Null Packet: TLAST=1 but all TKEEP bits are 0.", mapping: ["REQ_QUAL_01"]}
+  - {id: "TC_PKT_04", scenario: "ID Interleaving: Packet 1 (TID=0), Packet 2 (TID=1) switching.", mapping: ["REQ_PKT_01"]}
+  - {id: "TC_PKT_05", scenario: "Illegal ID Change: Change TID while TLAST=0. Verify assertion.", mapping: ["REQ_PKT_01"]}
+  - {id: "TC_PKT_06", scenario: "Illegal DEST Change: Change TDEST while TLAST=0. Verify assertion.", mapping: ["REQ_PKT_02"]}
+  - {id: "TC_QUAL_01", scenario: "Sparse TSTRB: Transfer where only odd bytes are marked as data.", mapping: ["REQ_QUAL_02"]}
+  - {id: "TC_QUAL_02", scenario: "Sparse TKEEP: Transfer where middle bytes are nullified.", mapping: ["REQ_QUAL_01"]}
+  - {id: "TC_QUAL_03", scenario: "TSTRB/TKEEP Logic: Verify TSTRB=TKEEP default when TSTRB is absent.", mapping: ["REQ_QUAL_02"]}
+  - {id: "TC_PWR_01", scenario: "Wakeup Pre-assertion: TWAKEUP asserted 1 cycle before TVALID.", mapping: ["REQ_PWR_01"]}
+  - {id: "TC_PWR_02", scenario: "Wakeup Concurrency: TWAKEUP and TVALID asserted same cycle.", mapping: ["REQ_PWR_02"]}
+  - {id: "TC_PWR_03", scenario: "Early Wakeup Drop: Drop TWAKEUP before TREADY is HIGH. Verify failure.", mapping: ["REQ_PWR_02"]}
+  - {id: "TC_SIDE_01", scenario: "TUSER Stability: Toggle TUSER bits during TREADY stall. Verify violation.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_SIDE_02", scenario: "TUSER Large Width: Verify TUSER_WIDTH > 32 performance and data integrity.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_STRESS_01", scenario: "Random Pressure: Random TREADY and random TVALID gaps for 1000 transfers.", mapping: ["REQ_HS_02"]}
+  - {id: "TC_STRESS_02", scenario: "Heavy Interleaving: Randomly switch TID every packet with zero-cycle gaps.", mapping: ["REQ_PKT_01"]}
+  - {id: "TC_STRESS_03", scenario: "Configuration Stress: Change TDATA_WIDTH and re-verify handshake logic.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_VAL_01", scenario: "Valid Toggle: Toggle TVALID every cycle to force handshake delays.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_VAL_02", scenario: "Ready Hold: Hold TREADY LOW for 100 cycles. Verify zero data movement.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_MISC_01", scenario: "Arbitration Change: Verify TLAST assists in arbitration weighting.", mapping: ["REQ_PKT_02"]}
+  - {id: "TC_MISC_02", scenario: "Buffer Flush: Assert TLAST with zero data to push through buffers.", mapping: ["REQ_PKT_02"]}
+  - {id: "TC_CORNER_01", scenario: "Max Width Data: Verification of 1024-bit data path throughput.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_CORNER_02", scenario: "Minimal Config: TDATA omitted. Verification of pure control flow.", mapping: ["REQ_HS_02"]}
+  - {id: "TC_CORNER_03", scenario: "Position-only Beats: Beats containing only position bytes (TSTRB=1, TKEEP=0).", mapping: ["REQ_QUAL_02"]}
+  - {id: "TC_FINAL_01", scenario: "End-to-End Regression: Run all 31 previous cases in sequence.", mapping: ["REQ_HS_01"]}
+  - {id: "TC_FINAL_02", scenario: "Protocol Wrap: Comprehensive status check post-simulation.", mapping: ["REQ_HS_02"]}
+
+interface_signals:
+  - {name: "TDATA", direction: "Master", width: "TD_W", description: "Data"}
+  - {name: "TVALID", direction: "Master", width: 1, description: "Valid"}
+  - {name: "TREADY", direction: "Slave", width: 1, description: "Ready"}
+  - {name: "TLAST", direction: "Master", width: 1, description: "Packet End"}
+  - {name: "TID", direction: "Master", width: "TID_W", description: "Stream ID"}
+  - {name: "TDEST", direction: "Master", width: "TDEST_W", description: "Dest ID"}
+  - {name: "TKEEP", direction: "Master", width: "TD_W/8", description: "Null"}
+  - {name: "TSTRB", direction: "Master", width: "TD_W/8", description: "Strobe"}
+
+coverage_groups:
+  - {name: "cg_handshake", description: "Cross coverage of TVALID/TREADY."}
+  - {name: "cg_packet", description: "TLAST transitions and ID switches."}

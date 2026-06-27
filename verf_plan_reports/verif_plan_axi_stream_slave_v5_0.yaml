@@ -1,0 +1,445 @@
+project: "AXI-Stream Slave DUT Verification Plan — VIP as Master (Transmitter)"
+version: "5.0"
+verification_role: "Slave"
+protocol_version: "AXI4/5-Stream (ARM IHI 0051B, Issue B)"
+
+configurations:
+  - feature: "Handshake Protocol"
+    name: "Bidirectional Flow Control via TVALID/TREADY"
+    impact: |
+      The two-way handshake mechanism is the foundational conformance boundary of the
+      AXI-Stream interface. The VIP (Master Agent) drives TVALID and payload, while the
+      DUT Slave asserts TREADY to admit transfers. Deterministic latency compliance requires
+      that the scoreboard detect any sampling anomaly — specifically, data consumption
+      occurring outside the coincident HIGH state of both signals.
+
+  - feature: "Packet Framing"
+    name: "TLAST Boundary Delineation"
+    impact: |
+      TLAST acts as the sole explicit packet-boundary indicator. Its assertion count must
+      be preserved between Transmitter and Receiver without exception. The DUT's internal
+      state machines are expected to flush on TLAST=1; the monitor must reconstruct
+      complete datagram sequences and verify that inter-packet state isolation is maintained.
+
+  - feature: "Byte Qualifiers"
+    name: "TKEEP / TSTRB Null and Position Byte Encoding"
+    impact: |
+      TKEEP qualifies bytes for transport (null byte elimination) while TSTRB distinguishes
+      data bytes from positional placeholders. The reserved combination (TKEEP=0/TSTRB=1)
+      is an illegal stimulus that must be monitored via protocol assertion. Correct Slave
+      handling of sparse streams requires byte-level reconstruction fidelity in the scoreboard.
+
+  - feature: "Parity Protection (AXI5)"
+    name: "Odd Parity — Check_Type: Odd_Parity_Byte_All"
+    impact: |
+      The AXI5-Stream parity scheme provides single-bit error detection across all interface
+      signals. The VIP Master must generate TDATACHK, TVALIDCHK, and TLASTCHK on every
+      qualifying cycle per Table 5-1. The DUT Slave is expected to propagate detection events
+      for deliberate fault-injection scenarios, verifying error-containment behavior.
+
+  - feature: "Reset Sequencing"
+    name: "ARESETn — Synchronous Deassertion Protocol"
+    impact: |
+      ARESETn is asserted asynchronously but must be deasserted synchronous to ACLK. The
+      DUT Slave must not latch any transfer during ARESETn asserted state and must hold its
+      state-machine at the designated IDLE state until the first valid post-reset clock edge.
+      Mid-transfer reset injection tests the DUT's ability to suppress in-flight data without
+      residual coherency corruption.
+
+  - feature: "Wakeup Signaling (AXI5)"
+    name: "TWAKEUP Pre-Transfer Activity Assertion"
+    impact: |
+      In power-aware topologies, TWAKEUP must be asserted at minimum one cycle before
+      TVALID. The Slave is permitted to gate TREADY until TWAKEUP is detected, and doing
+      so without deadlock is a key conformance requirement. Verification must exercise both
+      the recommended (early) and permissible (simultaneous) wakeup timing windows.
+
+  - feature: "Transfer Interleaving"
+    name: "Per-Transfer TID-Indexed Stream Interleaving"
+    impact: |
+      Interleaving is permitted on a per-transfer granularity across distinct TID/TDEST
+      stream identifiers. The DUT Slave must maintain orthogonal stream contexts, ensuring
+      that data integrity and ordering are preserved independently for each unique identifier
+      pair. Scoreboard stream demultiplexing logic must validate this isolation property.
+
+  - feature: "Continuous Packets Mode"
+    name: "Continuous_Packets Property Enforcement"
+    impact: |
+      When Continuous_Packets=True, the protocol mandates that TSTRB is absent, all
+      mid-packet TKEEP bits be HIGH, and TID/TDEST remain stable while TLAST=0. Arbitration
+      is constrained to TLAST boundaries. VIP sequences operating in this mode must enforce
+      these constraints structurally, and the protocol monitor must flag any mid-packet
+      TID mutation as a conformance violation.
+
+uvm_environment_diagram: |
+  graph TD
+      classDef test_layer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2;
+      classDef test_obj fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5,color:#7b1fa2;
+      classDef env_layer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0;
+      classDef env_obj fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,stroke-dasharray: 5 5,color:#1565c0;
+      classDef agent_layer fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c;
+      classDef agent_obj fill:#e0f2f1,stroke:#00695c,stroke-width:2px,stroke-dasharray: 5 5,color:#00695c;
+      classDef dut_layer fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17;
+
+      subgraph UVM_Test_Layer [uvm_test]
+          direction TB
+          Test_Cfg[axi_test_config]:::test_obj
+          Seq[axi_sequence]:::test_obj
+          subgraph Env_Layer [uvm_env]
+              direction TB
+              Env_Cfg[axi_env_config]:::env_obj
+              Scoreboard[axi_scoreboard]:::env_layer
+              subgraph Agent_Layer [Master Agent - VIP Transmitter]
+                  direction TB
+                  Agent_Cfg[axi_agent_config]:::agent_obj
+                  Sequencer[axi_sequencer]:::agent_layer
+                  Driver[axi_driver]:::agent_layer
+                  Monitor[axi_monitor]:::agent_layer
+                  Sequencer --> Driver
+              end
+          end
+      end
+
+      Seq -->|starts on| Sequencer
+      subgraph Top_Level [Hardware Top]
+          VIF[Virtual Interface]:::interface
+          DUT[DUT - AXI Slave]:::interface
+          VIF <--> DUT
+      end
+
+      Driver --- VIF
+      Monitor --- VIF
+      Monitor -- "Analysis Port" --> Scoreboard
+      class UVM_Test_Layer test_layer;
+      class Env_Layer env_layer;
+      class Agent_Layer agent_layer;
+      class Top_Level dut_layer;
+      class VIF,DUT dut_layer;
+
+test_requirements:
+  - id: "REQ_SLV_01"
+    name: "TREADY Conformance and Handshake Latency"
+    spec_ref: "Section 2.2, Page 2-18"
+    description: |
+      The DUT Slave drives TREADY to signal its readiness to accept an inbound transfer. A
+      transfer is architecturally consummated only when both TVALID and TREADY are simultaneously
+      asserted on a rising ACLK edge. The Slave is permitted to assert TREADY before TVALID is
+      observed, enabling zero-overhead acceptance paths. However, it is also permitted to gate
+      TREADY until TVALID is seen, introducing a deterministic, observable latency.
+
+      Verification Intent: The Master Agent must exercise all three canonical handshake orderings
+      (TVALID-first, TREADY-first, simultaneous) across constrained-random sequences. A scoreboard
+      assertion must verify that no TDATA sampling event occurs outside a coincident dual-assertion
+      window. Back-pressure injection via randomized TREADY stalls must exercise the Slave's ability
+      to sustain flow control without internal FIFO overflow or state corruption.
+
+  - id: "REQ_SLV_02"
+    name: "Packet Boundary Integrity via TLAST Acknowledgment"
+    spec_ref: "Section 2.6, Page 2-26"
+    description: |
+      The TLAST signal demarcates the terminal beat of each AXI-Stream packet. Its assertion count
+      must be conserved end-to-end; it is not permissible for the Slave to suppress or duplicate
+      TLAST events. Additionally, the Slave must correctly distinguish packet-start context (the
+      first transfer following a prior TLAST assertion) from mid-packet context. The boundary
+      between two consecutive packets has no explicit start signal; it is implicitly determined by
+      the prior TLAST assertion and matching TID/TDEST identifiers.
+
+      Verification Intent: Sequences must cover single-beat packets (TLAST=1 on beat 0),
+      maximum-length variable-beat packets, and back-to-back packet streams with no idle gap
+      between TLAST=1 and the subsequent TVALID=1. The monitor must independently reconstruct
+      packets from observed beat sequences and the scoreboard must verify correctness of
+      inter-packet state isolation within the DUT.
+
+  - id: "REQ_SLV_03"
+    name: "Byte Qualifier Compliance — TKEEP/TSTRB Semantic Interpretation"
+    spec_ref: "Section 2.5, Page 2-24; Table 2-3, Page 2-25"
+    description: |
+      The TKEEP and TSTRB signals encode per-byte semantics for each TDATA beat. TKEEP=1/TSTRB=1
+      denotes a data byte; TKEEP=1/TSTRB=0 denotes a positional placeholder byte; TKEEP=0/TSTRB=0
+      denotes a null byte eligible for removal. The combination TKEEP=0/TSTRB=1 is architecturally
+      reserved and constitutes a protocol violation. The DUT Slave must correctly interpret the
+      byte stream without altering the relative ordering of data and positional bytes.
+
+      Verification Intent: The Master Agent must drive all four TKEEP/TSTRB permutations under
+      constrained randomization, with the reserved combination (TKEEP=0/TSTRB=1) used exclusively
+      for negative-stimulus injection. A real-time protocol assertion on the monitor interface must
+      flag this illegal encoding. Sparse-stream sequences with statistically distributed null bytes
+      must verify that the Slave's internal data reconstruction is tolerant of non-contiguous
+      active bytes across wide-bus configurations.
+
+  - id: "REQ_SLV_04"
+    name: "Reset Conformance — ARESETn Synchronous Deassertion and State Recovery"
+    spec_ref: "Section 2.8.2, Page 2-28"
+    description: |
+      ARESETn governs the Slave's initialization state transitions. The signal may be asserted
+      asynchronously at any point in the transfer timeline, but its deassertion must be synchronous
+      to the rising edge of ACLK. During the assertion window, the Slave must unconditionally
+      hold all internal state machines at the defined IDLE condition. Any in-flight data present
+      at the interface boundary must be suppressed without residual coherency effects or FIFO
+      saturation.
+
+      Verification Intent: Reset stimulus must be injected across three distinct interface states:
+      (1) idle, (2) mid-packet with TVALID=1 and TREADY gated LOW, and (3) at the moment of
+      handshake coincidence (TVALID=TREADY=1). Post-reset recovery sequences must confirm that the
+      DUT correctly resumes transfer acceptance on the first eligible ACLK edge following ARESETn
+      deassertion, with no residue of the pre-reset transaction state.
+
+  - id: "REQ_SLV_05"
+    name: "AXI5 Parity Fault Detection on Inbound TDATACHK"
+    spec_ref: "Chapter 5, Pages 5-44 to 5-48; Table 5-1, Page 5-48"
+    description: |
+      The AXI5-Stream interface parity scheme employs odd parity checking across all interface
+      signals. TDATACHK provides TDATA_WIDTH/8 check bits, one per byte lane. Parity must be
+      driven correctly in every cycle in which its associated Check Enable condition is asserted.
+      Critically, parity must be generated for ALL byte lanes regardless of whether the associated
+      TKEEP bit is asserted, precluding any null-byte optimization in parity generation.
+
+      Verification Intent: The Master Agent must generate correctly computed TDATACHK, TVALIDCHK,
+      TLASTCHK, and TREADYCHK on every eligible cycle. Fault injection scenarios must introduce
+      deliberate single-bit inversions on specific check-bit positions and verify that the DUT
+      Slave activates its error-reporting path. The scoreboard must independently compute expected
+      parity and assert equivalence on every monitored beat to achieve 100% check-bit coverage.
+
+  - id: "REQ_SLV_06"
+    name: "TWAKEUP Pre-Transfer Activity Signaling (AXI5)"
+    spec_ref: "Section 2.3, Page 2-20"
+    description: |
+      The TWAKEUP signal serves as a power-domain activity indicator that precedes active data
+      transfers. The specification recommends its assertion at least one ACLK cycle before TVALID.
+      If asserted concurrently with TVALID, TWAKEUP must sustain its assertion until TREADY is
+      also observed HIGH. The Slave is architecturally permitted to defer TREADY until TWAKEUP
+      is detected, which introduces a potential deadlock condition if TWAKEUP is never driven.
+
+      Verification Intent: Timing stimulus must cover: (a) TWAKEUP leading TVALID by one or more
+      cycles; (b) simultaneous assertion of TWAKEUP and TVALID; and (c) degenerate cases
+      where TWAKEUP is toggled without a subsequent transfer, verifying that the Slave does not
+      incorrectly advance its internal ready state. Deadlock watchdog logic in the test must
+      detect and flag scenarios where the Slave holds TREADY indefinitely.
+
+  - id: "REQ_SLV_07"
+    name: "TID/TDEST Stream Identifier Ordering Orthogonality"
+    spec_ref: "Section 4.2, Page 4-41; Section 2.7, Page 2-27"
+    description: |
+      The AXI-Stream protocol enforces strict transfer ordering: reordering of beats within
+      any given TID/TDEST stream is prohibited. Transfer interleaving at per-beat granularity
+      is permitted across distinct stream identifiers, enabling multiplexed transport on a
+      shared physical interface. The DUT Slave must maintain independent data-path contexts for
+      each active TID/TDEST pair and must correctly demultiplex interleaved beats without
+      cross-stream contamination.
+
+      Verification Intent: Multi-stream sequences must interleave transfers across at least two
+      distinct TID values. The scoreboard must independently track per-stream byte sequences using
+      TID/TDEST as demultiplexing keys and verify intra-stream ordering preservation. Protocol
+      assertions must flag any observable reordering event. Stress scenarios must sustain maximum
+      permissible interleaving depth to characterize Slave context-switching capacity.
+
+  - id: "REQ_SLV_08"
+    name: "Null Packet Reception — Zero-Data TLAST Transfer Handling"
+    spec_ref: "Section 2.6.1, Page 2-26"
+    description: |
+      A null packet is defined as a transfer where TLAST=1 is asserted but all TKEEP bits
+      are deasserted (TKEEP=all-zeros), resulting in a packet containing no data or positional
+      bytes. This construct is used to indicate packet-end conditions, flush intermediate
+      buffers, or satisfy endpoint synchronization requirements without payload. The Slave must
+      acknowledge the null packet via handshake completion without triggering unintended data
+      path operations.
+
+      Verification Intent: Master Agent must generate null packets at packet boundaries,
+      mid-stream (following a non-null packet), and in back-to-back sequences. The scoreboard
+      must verify that the Slave's internal byte counter is not incremented by null packet events,
+      and that the Slave's packet-boundary state machine correctly transitions to the next-packet
+      context without treating the null TLAST as a data-bearing frame.
+
+test_cases:
+  - id: "TC_SLV_001"
+    scenario: "TREADY-First Handshake: The VIP Master drives TVALID LOW for N cycles (1 to 8, constrained random) while the Slave has pre-asserted TREADY. Upon TVALID assertion, the transfer must complete in the same cycle. Verify DUT does not latch undefined data during the pre-TVALID window."
+    mapping: ["REQ_SLV_01"]
+
+  - id: "TC_SLV_002"
+    scenario: "TVALID-First Handshake with Back-Pressure: Master asserts TVALID and holds data stable. DUT Slave deasserts TREADY for a randomized stall period (0 to 32 cycles). Scoreboard verifies that TDATA, TKEEP, TLAST, TID, and TDEST remain bit-stable across the entire stall window per Section 2.2."
+    mapping: ["REQ_SLV_01"]
+
+  - id: "TC_SLV_003"
+    scenario: "Sustained Back-Pressure Stress: Master drives a 256-beat packet with TREADY toggling at a 50% duty cycle. Scoreboard reconstructs the complete packet from monitored beats and validates payload integrity against the expected reference model. Measures effective throughput efficiency."
+    mapping: ["REQ_SLV_01", "REQ_SLV_02"]
+
+  - id: "TC_SLV_004"
+    scenario: "Single-Beat Packet: TVALID=1, TLAST=1 asserted simultaneously on the first and only beat. Slave must consummate the handshake and transition to inter-packet idle state within one clock cycle of TREADY assertion. Scoreboard checks that TLAST count increments by exactly one."
+    mapping: ["REQ_SLV_02"]
+
+  - id: "TC_SLV_005"
+    scenario: "Back-to-Back Packet Stream: TVALID remains HIGH across the TLAST boundary — the last beat of packet N (TLAST=1) is immediately followed by the first beat of packet N+1 (TLAST=0) with no idle gap. Verify DUT correctly partitions the two packets and does not merge beats across the boundary."
+    mapping: ["REQ_SLV_02"]
+
+  - id: "TC_SLV_006"
+    scenario: "Sparse Byte-Qualifier Stream: Master drives TKEEP/TSTRB with constrained-random per-byte patterns across a 4-byte data bus, covering all valid encoding combinations (data, position, null bytes). Scoreboard verifies byte ordering and data reconstruction integrity. Monitor asserts that TKEEP=0/TSTRB=1 (reserved) never appears."
+    mapping: ["REQ_SLV_03"]
+
+  - id: "TC_SLV_007"
+    scenario: "Reserved Qualifier Injection (Negative Stimulus): Master injects a single beat with TKEEP=0, TSTRB=1 on one byte lane. The VIP protocol monitor must raise a fatal assertion. DUT behavior post-injection is observed and logged; no system deadlock should occur."
+    mapping: ["REQ_SLV_03"]
+
+  - id: "TC_SLV_008"
+    scenario: "Mid-Transfer Reset Injection: While a multi-beat packet is in-progress (TVALID=1, TREADY=0), ARESETn is driven LOW for 4 ACLK cycles. Verify DUT deasserts TREADY within one cycle of reset assertion and internal FIFOs are in a flushed state. Post-reset, confirm that the first new transfer is accepted correctly."
+    mapping: ["REQ_SLV_04"]
+
+  - id: "TC_SLV_009"
+    scenario: "Reset During Handshake: ARESETn deasserted precisely at the ACLK edge where TVALID=TREADY=1 (handshake boundary). Verify that the transfer is not partially sampled and that the DUT returns cleanly to IDLE without asserting a spurious completion event."
+    mapping: ["REQ_SLV_04"]
+
+  - id: "TC_SLV_010"
+    scenario: "AXI5 Parity Validation — Nominal Traffic: VIP Master drives correct odd parity on TDATACHK, TVALIDCHK, and TLASTCHK for all beats across a 1000-transfer regression. Scoreboard independently computes expected parity and asserts bit-exact equivalence on every beat."
+    mapping: ["REQ_SLV_05"]
+
+  - id: "TC_SLV_011"
+    scenario: "AXI5 Parity — Null Byte Lane Coverage: With TKEEP=0 on two of four byte lanes, VIP must still drive correct TDATACHK bits for those inactive lanes. Scoreboard verifies that parity is computed over all TDATA bits regardless of TKEEP state."
+    mapping: ["REQ_SLV_05"]
+
+  - id: "TC_SLV_012"
+    scenario: "AXI5 Parity Fault Injection: Master deliberately inverts one bit of TDATACHK on beat index 47. Verify that the DUT Slave activates its error-reporting mechanism (error flag output, error interrupt, or protocol assertion) within the cycle of detection."
+    mapping: ["REQ_SLV_05"]
+
+  - id: "TC_SLV_013"
+    scenario: "TWAKEUP Recommended Timing: TWAKEUP asserted exactly 2 cycles before TVALID. Verify Slave accepts TREADY assertion within the specified wakeup latency budget. No deadlock must occur."
+    mapping: ["REQ_SLV_06"]
+
+  - id: "TC_SLV_014"
+    scenario: "TWAKEUP Simultaneous with TVALID: TWAKEUP and TVALID asserted in the same cycle. Verify TWAKEUP remains HIGH until TREADY is asserted, and that the Slave does not exhibit TREADY starvation."
+    mapping: ["REQ_SLV_06"]
+
+  - id: "TC_SLV_015"
+    scenario: "Dual-Stream Interleaving: Two concurrent streams (TID=0, TID=1) are interleaved at transfer granularity. The VIP drives alternating beats from each stream across a 64-beat sequence. Scoreboard demultiplexes by TID and independently validates ordering for each stream without cross-stream data contamination."
+    mapping: ["REQ_SLV_07"]
+
+  - id: "TC_SLV_016"
+    scenario: "Null Packet Reception: VIP drives TVALID=1, TLAST=1, all TKEEP=0 on a single beat. Slave must assert TREADY and complete the handshake. Scoreboard verifies no data bytes are credited to the null packet and the DUT correctly advances to inter-packet idle state."
+    mapping: ["REQ_SLV_08"]
+
+  - id: "TC_SLV_017"
+    scenario: "Back-to-Back Null Packets: Two consecutive null packets (TLAST=1, TKEEP=all-0) with no idle gap between them. Verifies the Slave's sequential packet-boundary state machine does not lock up on zero-data transitions."
+    mapping: ["REQ_SLV_08", "REQ_SLV_02"]
+
+coverage_groups:
+  - name: "cg_handshake_ordering"
+    description: "Three-bin cross of handshake ordering scenarios: (a) TVALID before TREADY, (b) TREADY before TVALID, (c) simultaneous assertion. Cross with TREADY stall depth bins: 0, 1-4, 5-16, 17-32 cycles."
+    mapping: ["REQ_SLV_01"]
+
+  - name: "cg_packet_size_distribution"
+    description: "Packet-length bins: 1 beat (single), 2-4 beats (short burst), 5-32 beats (medium), 33-256 beats (long). Separate bins for back-to-back and isolated packet categories."
+    mapping: ["REQ_SLV_02"]
+
+  - name: "cg_byte_qualifier_patterns"
+    description: "Per-byte lane TKEEP/TSTRB encoding coverage. Bins: all-data, all-null, mixed (data+null), position-byte present, sparse (randomized). Reserved combination coverage must be zero (functional) and non-zero only in negative-stimulus scenarios."
+    mapping: ["REQ_SLV_03"]
+
+  - name: "cg_reset_injection_state"
+    description: "Three-state reset injection coverage: (a) idle, (b) mid-packet TVALID=1/TREADY=0, (c) handshake coincidence TVALID=TREADY=1. Cross with reset duration bins: 1, 2-4, 5-16 cycles."
+    mapping: ["REQ_SLV_04"]
+
+  - name: "cg_parity_check_lanes"
+    description: "Per-byte-lane parity bit coverage across all TDATACHK positions for a 4-byte bus. Separate bins for active (TKEEP=1) and inactive (TKEEP=0) lanes. Fault injection coverage: bit-0 through bit-3 of TDATACHK individually inverted."
+    mapping: ["REQ_SLV_05"]
+
+  - name: "cg_twakeup_timing"
+    description: "TWAKEUP lead-time bins relative to TVALID: -1 cycle (post-TVALID, degenerate), 0 cycles (simultaneous), 1 cycle (recommended), 2-4 cycles (early). Cross with transfer duration."
+    mapping: ["REQ_SLV_06"]
+
+  - name: "cg_stream_interleaving_depth"
+    description: "Number of active TID streams: 1, 2, 4. Consecutive transfer count per TID before stream switch: 1 (maximum interleaving), 2-8, 9+. Cross verifies Slave context-switching saturation boundary."
+    mapping: ["REQ_SLV_07"]
+
+  - name: "cg_null_packet_context"
+    description: "Null packet occurrence context bins: isolated (no surrounding packets), following a data packet, preceding a data packet, back-to-back null packets. Verifies TLAST event handling orthogonality."
+    mapping: ["REQ_SLV_08"]
+
+interface_signals:
+  - name: "ACLK"
+    direction: "Input (to DUT Slave)"
+    width: "1"
+    description: "Global synchronization clock. All input signals are sampled on the rising edge. All output signal changes from the Slave must occur after the rising edge. (Section 2.8.1, p.28)"
+
+  - name: "ARESETn"
+    direction: "Input (to DUT Slave)"
+    width: "1"
+    description: "Active-LOW global reset. May be asserted asynchronously at any time. Deassertion is synchronous to the rising edge of ACLK. Mandates TREADY=0 from the Slave during assertion. (Section 2.8.2, p.28)"
+
+  - name: "TVALID"
+    direction: "Input (VIP Master Output)"
+    width: "1"
+    description: "Indicates that the VIP (Transmitter) is driving a valid transfer payload. Once asserted, must remain HIGH until the handshake is completed. (Section 2.2, p.18)"
+
+  - name: "TREADY"
+    direction: "Output (DUT Slave Output)"
+    width: "1"
+    description: "Indicates the DUT Slave can accept an inbound transfer. May be pre-asserted or deferred until TVALID is observed. Default value is HIGH if signal is absent from the interface. (Section 3.1.1, p.34)"
+
+  - name: "TDATA"
+    direction: "Input (VIP Master Output)"
+    width: "TDATA_WIDTH (integer x8 bits)"
+    description: "Primary payload signal. Encodes the ordered byte sequence of the data stream. Must remain stable for the full duration of any TVALID assertion window where TREADY has not yet been asserted. (Section 2.4, p.21)"
+
+  - name: "TSTRB"
+    direction: "Input (VIP Master Output)"
+    width: "TDATA_WIDTH/8"
+    description: "Per-byte qualifier distinguishing data bytes (TSTRB=1) from positional placeholder bytes (TSTRB=0). Only meaningful when associated TKEEP bit is asserted. (Section 2.5.2, p.24)"
+
+  - name: "TKEEP"
+    direction: "Input (VIP Master Output)"
+    width: "TDATA_WIDTH/8"
+    description: "Per-byte null-byte qualification signal. When deasserted for a given byte lane, that lane carries a null byte eligible for removal by the Slave or downstream interconnect. Default: all-HIGH if signal is absent. (Section 2.5.1, p.24)"
+
+  - name: "TLAST"
+    direction: "Input (VIP Master Output)"
+    width: "1"
+    description: "Packet boundary indicator. Asserted on the terminal beat of each packet. TLAST assertion count must be preserved without modification between Transmitter and Receiver. (Section 2.6, p.26)"
+
+  - name: "TID"
+    direction: "Input (VIP Master Output)"
+    width: "TID_WIDTH (recommended <= 8 bits)"
+    description: "Stream identifier enabling per-transfer multiplexing of independent data streams on a shared physical interface. Transfers sharing TID/TDEST belong to the same stream and must maintain in-order arrival. (Section 2.7, p.27)"
+
+  - name: "TDEST"
+    direction: "Input (VIP Master Output)"
+    width: "TDEST_WIDTH (recommended <= 8 bits)"
+    description: "Routing identifier providing coarse destination addressing for stream-level routing within interconnect fabrics. Merging of transfers with differing TID or TDEST is prohibited. (Section 2.7, p.27)"
+
+  - name: "TUSER"
+    direction: "Input (VIP Master Output)"
+    width: "TUSER_WIDTH (recommended: integer multiple of TDATA_WIDTH/8)"
+    description: "User-defined sideband signal aligned on a per-byte basis to TDATA. Byte x occupies TUSER[((x*m)+(m-1)):(x*m)]. TUSER values for null bytes (TKEEP=0) are not guaranteed to be transmitted. (Section 2.9, p.29)"
+
+  - name: "TWAKEUP"
+    direction: "Input (VIP Master Output)"
+    width: "1 (AXI5-Stream only)"
+    description: "Activity indicator for power-domain management. Must be glitch-free and is recommended to be asserted at least one cycle before TVALID. Slave may defer TREADY until TWAKEUP is observed. Present only when Wakeup_Signal property is True. (Section 2.3, p.20)"
+
+  - name: "TVALIDCHK"
+    direction: "Input (VIP Master Output)"
+    width: "1 (AXI5-Stream only)"
+    description: "Odd parity check bit for TVALID. Check Enable: ARESETn=1. Driven correctly every cycle while the enable condition holds. (Table 5-1, p.48)"
+
+  - name: "TDATACHK"
+    direction: "Input (VIP Master Output)"
+    width: "TDATA_WIDTH/8 (AXI5-Stream only)"
+    description: "Odd parity check field for TDATA. One bit per 8-bit lane. Check Enable: TVALID=1. Must be driven correctly for ALL byte lanes including lanes where TKEEP=0. (Table 5-1, p.48; Section 5.3, p.46)"
+
+  - name: "TLASTCHK"
+    direction: "Input (VIP Master Output)"
+    width: "1 (AXI5-Stream only)"
+    description: "Odd parity check bit for TLAST. Check Enable: TVALID=1. The parity bit for a 1-bit signal is its logical inversion, as per the critical control signal rule of Section 5.3. (Table 5-1, p.48)"
+
+  - name: "TREADYCHK"
+    direction: "Output (DUT Slave Output, AXI5-Stream only)"
+    width: "1"
+    description: "Odd parity check bit for TREADY. Generated by the DUT Slave. Check Enable: ARESETn=1. Scoreboard must validate this output against the independently computed expected parity. (Table 5-1, p.48)"
+
+directory_structure:
+  root: "axi_stream_slave_vip_tb/"
+  folders:
+    - master_agent: "VIP Transmitter Agent: Sequencer, Driver (TVALID/TDATA stimulus), Monitor"
+    - env: "UVM Environment: Protocol Scoreboard, Coverage Subscriber, Config Object"
+    - sequences: "Stimulus library: handshake, sparse-stream, back-to-back, null-packet, parity, reset, interleaving"
+    - tests: "UVM test classes mapping scenarios to sequence combinations"
+    - assertions: "SVA property file for real-time protocol conformance monitoring"
+    - top: "Simulation top-level: DUT instance, virtual interface binding, clock/reset generation"
+    - verif_plan: "Verification plan artifacts: YAML matrix, PDF report, sub-prompt references"

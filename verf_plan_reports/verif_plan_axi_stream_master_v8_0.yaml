@@ -1,0 +1,311 @@
+project: "AXI-Stream Master VIP Verification Plan"
+version: "8.0"
+verification_role: "Master"
+protocol_version: "AXI4/5-Stream (ARM IHI 0051B, Issue B)"
+
+configurations:
+  - feature: "Handshake Protocol"
+    name: "TVALID_TREADY_Async_Handshake"
+    impact: |
+      Functionality impact: Forces pipeline stalling and dictates stability bounds for the entire payload vector. 
+      Performance impact: dictates maximum theoretical throughput in scenarios involving combinatorial TREADY backpressure.
+
+  - feature: "Packet Framing"
+    name: "TLAST_Packet_Framing_Support"
+    impact: |
+      Functionality impact: Requires end-to-end exact reconstruction of packet boundary assertions to govern data routing layer and destination buffers. 
+      Performance impact: dictates fragmentation penalties and dynamic arbitration thresholds.
+
+  - feature: "Byte-Level Stream Semantics"
+    name: "TKEEP_TSTRB_Qualifier_Encoding"
+    impact: |
+      Functionality impact: necessitates robust reconstruction algorithms in the scoreboard to extract physical data while discarding positional or null bytes. 
+      Performance impact: alters actual byte-consumption rate compared to clock-cycle metrics.
+
+  - feature: "Reset Sequencing"
+    name: "ARESETn_Mid_Transfer_Isolation"
+    impact: |
+      Functionality impact: compels the testing environment to trigger state-machine destruction mid-transfer. 
+      Verification constraint: requires the VIP driver to safely discard tracking state and the monitor to correctly sequence clean IDLE resets asynchronously.
+
+  - feature: "Wakeup Signaling (AXI5)"
+    name: "TWAKEUP_Pre_Transfer_Signaling"
+    impact: |
+      Functionality impact: introduces an external deadlock dependency if TWAKEUP assertion lags TVALID assertion. 
+      Performance impact: latency models must explicitly adjust for TWAKEUP lead times before TREADY is physically accessible.
+
+  - feature: "Stream Identification"
+    name: "TID_TDEST_Interleaving_Routing"
+    impact: |
+      Functionality impact: forces the scoreboard multiplexer logic to concurrently maintain dynamically allocated data streams to track ordering compliance. 
+      Performance impact: tests the DUT buffer saturation across varying interleave depths.
+
+  - feature: "Parity Protection (AXI5)"
+    name: "Odd_Parity_Check_Generation"
+    impact: |
+      Functionality impact: requires single-bit error injection capabilities within the VIP transmission chain to exercise the DUT standard error logic. 
+      Verification constraint: the monitor must passively track hardware parity matrices parallel to the native data payload across all TKEEP permutations.
+
+  - feature: "Continuous Packets Mode"
+    name: "Continuous_Packet_Constraint_Mode"
+    impact: |
+      Functionality impact: strictly constrains the randomization matrices of the VIP to avoid null-byte and inter-packet gaps. 
+      Performance impact: maximizes arbitration efficiency and validates peak continuous payload saturation without recovery cycles.
+
+uvm_environment_diagram: |
+  graph TD
+      classDef test_layer  fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2;
+      classDef test_obj    fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5,color:#7b1fa2;
+      classDef env_layer   fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0;
+      classDef env_obj     fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,stroke-dasharray: 5 5,color:#1565c0;
+      classDef agent_layer fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c;
+      classDef agent_obj   fill:#e0f2f1,stroke:#00695c,stroke-width:2px,stroke-dasharray: 5 5,color:#00695c;
+      classDef dut_layer   fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17;
+
+      subgraph UVM_Test_Layer [uvm_test]
+          Test_Cfg[axi_test_config]:::test_obj
+          Seq[axi_sequence]:::test_obj
+          subgraph Env_Layer [uvm_env]
+              Scoreboard[axi_scoreboard]:::env_layer
+              Env_Cfg[axi_env_config]:::env_obj
+              subgraph Agent_Layer [Master Agent]
+                  Sequencer[axi_sequencer]:::agent_layer
+                  Agent_Cfg[axi_agent_config]:::agent_obj
+                  Driver[axi_driver]:::agent_layer
+                  Monitor[axi_monitor]:::agent_layer
+                  Sequencer --> Driver
+                  Agent_Cfg --> Sequencer
+              end
+              Env_Cfg --> Scoreboard
+          end
+          Test_Cfg --> Seq
+      end
+
+      Seq --> Sequencer
+      subgraph Top_Level [Hardware Top]
+          VIF[Virtual Interface]:::dut_layer
+          DUT[DUT Slave Receiver]:::dut_layer
+          VIF <--> DUT
+      end
+
+      Driver  --- VIF
+      Monitor --- VIF
+      Monitor --> Scoreboard
+      class UVM_Test_Layer test_layer;
+      class Env_Layer env_layer;
+      class Agent_Layer agent_layer;
+      class Top_Level dut_layer;
+
+test_requirements:
+  - id: "REQ_MST_01"
+    name: "TVALID Stability and Handshake Integrity"
+    spec_ref: "Section 2.2, Page 2-18"
+    description: |
+      The AXI-Stream handshake is predicated on the invariant that once a Transmitter asserts
+      TVALID, it must hold TVALID HIGH and maintain all associated payload signals (TDATA,
+      TSTRB, TKEEP, TLAST, TID, TDEST, TUSER) in a stable state until the handshake completes
+      via coincident TREADY assertion. Critically, the Transmitter (VIP Master) is prohibited
+      from conditioning TVALID assertion on a prior TREADY observation — doing so would introduce
+      a combinatorial dependency that risks deadlock. 
+
+      Verification Intent: The VIP Master driver must assert TVALID and hold all sideband signals
+      with strict stability until TREADY is observed. The monitor will assert on mid-handshake mutations. 
+      We will inject TVALID drops via VIP configurations to characterize DUT responses. Under no circumstance
+      should the DUT require non-standard behaviors; it should trigger its native state exception handling.
+
+  - id: "REQ_MST_02"
+    name: "Packet Boundary Generation via TLAST Assertion"
+    spec_ref: "Section 2.6, Page 2-26"
+    description: |
+      TLAST is the exclusive packet-boundary indicator generated by the Transmitter (VIP Master).
+      The number of TLAST assertions must be preserved end-to-end between Transmitter and Receiver
+      without additional assertions (false boundaries) or suppressions (missed boundaries). 
+
+      Verification Intent: VIP sequences must systematically cover variable-length transfers (1 to 256 beats)
+      and continuous consecutive packets with zero gap. The scoreboard will parse standard TLAST assertions
+      and assert data grouping correctness, entirely driven by configurable VIP framing intervals.
+
+  - id: "REQ_MST_03"
+    name: "Byte Qualifier Conformance - TKEEP and TSTRB Encoding"
+    spec_ref: "Section 2.5, Page 2-24"
+    description: |
+      TKEEP governs byte transport eligibility. The combination TKEEP=LOW/TSTRB=HIGH is architecturally reserved
+      and constitutes a protocol violation. 
+
+      Verification Intent: VIP sequences must systematically vary TKEEP and TSTRB across all byte lanes, including
+      driving reserved configurations as negative stimulus. The DUT is assumed to operate securely; the environment
+      will observe its native error responses when standard illegal byte masks are forced from the VIP.
+
+  - id: "REQ_MST_04"
+    name: "Clock and Reset Protocol - TVALID Deassertion During ARESETn"
+    spec_ref: "Section 2.8.2, Page 2-28"
+    description: |
+      During ARESETn assertion, TVALID must be driven LOW. Premature TVALID assertion post-reset
+      constitutes a protocol violation that may corrupt the DUT Slave's initialization state.
+
+      Verification Intent: The VIP reset-sequence handles overriding the protocol state. Reset events
+      will be driven asynchronously by the VIP mid-packet and mid-handshake. The DUT must correctly 
+      flush standard buffers according to spec without requiring custom rescue stimulus from the agent.
+
+  - id: "REQ_MST_05"
+    name: "AXI5 Parity Generation Across All Check Signals"
+    spec_ref: "Chapter 5, Page 5-44"
+    description: |
+      The AXI5-Stream parity protection scheme employs odd parity across all interface signals.
+      TDATACHK must be driven for all byte lanes unconditionally (even null lanes).
+
+      Verification Intent: The VIP will continuously calculate and drive proper odd parity matrices.
+      Test case scenarios will actively corrupt single bits on the VIP transmitter driver to stimulate the DUT's 
+      standard error interrupts. The environment will not require the DUT to support custom diagnostic overrides.
+
+  - id: "REQ_MST_06"
+    name: "Multi-Stream Interleaving Integrity"
+    spec_ref: "Section 4.1, Page 4-40"
+    description: |
+      Inter-stream interleaving at per-transfer granularity is permitted. The VIP Master 
+      must maintain independent stream contexts for each active TID value and must not reorder 
+      beats within a shared stream context.
+
+      Verification Intent: The VIP will leverage variable-rate sequence arbitration to interleave up 
+      to four concurrent streams on a beat-granularity. The scoreboard will reconstruct data segments 
+      without modifying or restricting DUT routing thresholds. 
+
+test_cases:
+  - id: "TC_MST_001"
+    scenario: "TVALID-First Handshake: VIP Master sequence asserts TVALID with stable TDATA. The VIP delays subsequent action while DUT Slave holds TREADY randomly. The VIP monitor confirms payload stability across the stalling boundary."
+    mapping: ["REQ_MST_01"]
+
+  - id: "TC_MST_002"
+    scenario: "Negative Parameterized Drop: VIP is instructed to deliberately withdraw TVALID before TREADY assertion. The standard DUT behavior is observed and verified against spec compliance."
+    mapping: ["REQ_MST_01"]
+
+  - id: "TC_MST_003"
+    scenario: "Back-to-Back Packet Sequence: VIP sequence drives a continuous payload where TLAST=1 is immediately followed by a new packet with TVALID=1 in the very next cycle without gap. The scoreboard verifies standard DUT routing extraction."
+    mapping: ["REQ_MST_02"]
+
+  - id: "TC_MST_004"
+    scenario: "Sparse Stream Position Sequence: VIP drives randomized TKEEP variations covering fully null packages, position bytes, and mixed data streams. The scoreboard validates physical byte extraction."
+    mapping: ["REQ_MST_03"]
+
+  - id: "TC_MST_005"
+    scenario: "Reserved Encoding Injection: VIP driver forces sequence TKEEP=0/TSTRB=1 locally to trigger a negative constraint. Standard DUT reporting thresholds (if implemented) are captured."
+    mapping: ["REQ_MST_03"]
+
+  - id: "TC_MST_006"
+    scenario: "Mid-Packet Asynchronous Reset: While VIP holds TVALID=1/TREADY=0, the VIP synchronously drives ARESETn LOW. Confirm DUT reliably drops pipeline and recovers on its own."
+    mapping: ["REQ_MST_04"]
+
+  - id: "TC_MST_007"
+    scenario: "AXI5 Parity Single-Bit Inversion: VIP driver mathematically calculates correct parity, then inverts bit 1 of TDATACHK array. The monitor logs standard DUT protocol violation responses."
+    mapping: ["REQ_MST_05"]
+
+  - id: "TC_MST_008"
+    scenario: "High-Depth Multi-Sequence Interleave: Four parallel VIP sequences drive disjoint TID packets into a shared driver. The VIP arbitrates tightly, generating a deeply interleaved stream. The scoreboard tests DUT tracking stability."
+    mapping: ["REQ_MST_06"]
+
+coverage_groups:
+  - name: "cg_handshake_ordering"
+    description: "Standard cross-coverage of TVALID/TREADY timing relations and VIP-induced wait-states."
+    mapping: ["REQ_MST_01"]
+
+  - name: "cg_packet_boundary_dimensions"
+    description: "Coverage bins for packet sizes dynamically constrained by the VIP sequences (single, multi, continuous)."
+    mapping: ["REQ_MST_02"]
+
+  - name: "cg_byte_lane_permutations"
+    description: "Coverage group mapping the TKEEP driver metrics against legal and illegal VIP combinations."
+    mapping: ["REQ_MST_03"]
+
+  - name: "cg_reset_window_injections"
+    description: "Vector tracking exactly where in the transfer phase the VIP interrupted the DUT via ARESETn."
+    mapping: ["REQ_MST_04"]
+
+  - name: "cg_parity_failure_positions"
+    description: "Tracks individual bits inverted by the VIP driver to ensure the DUT parity path is fully exercised."
+    mapping: ["REQ_MST_05"]
+
+  - name: "cg_stream_interleave_depths"
+    description: "Records max concurrent sequence IDs handled cleanly by the standard DUT architecture."
+    mapping: ["REQ_MST_06"]
+
+interface_signals:
+  - name: "ACLK"
+    direction: "Input (to VIP Master and DUT Slave)"
+    width: "1"
+    description: "Global synchronization clock."
+
+  - name: "ARESETn"
+    direction: "Input (to VIP Master and DUT Slave)"
+    width: "1"
+    description: "Active-LOW global reset."
+
+  - name: "TVALID"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "1"
+    description: "Driven by the VIP Master. Indicates a valid transfer payload is present."
+
+  - name: "TREADY"
+    direction: "Input (from DUT Slave / Receiver)"
+    width: "1"
+    description: "Driven by the DUT Slave to signal readiness to accept a transfer."
+
+  - name: "TDATA"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "TDATA_WIDTH"
+    description: "Primary data payload."
+
+  - name: "TSTRB"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "TDATA_WIDTH/8"
+    description: "Per-byte data qualifier."
+
+  - name: "TKEEP"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "TDATA_WIDTH/8"
+    description: "Per-byte position qualifier."
+
+  - name: "TLAST"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "1"
+    description: "Packet-boundary indicator."
+
+  - name: "TID"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "TID_WIDTH"
+    description: "Stream identifier."
+
+  - name: "TDEST"
+    direction: "Output (VIP Master / Transmitter)"
+    width: "TDEST_WIDTH"
+    description: "Routing identifier."
+
+  - name: "TVALIDCHK"
+    direction: "Output (VIP Master / Transmitter, AXI5-Stream only)"
+    width: "1"
+    description: "Odd parity check bit for TVALID."
+
+  - name: "TDATACHK"
+    direction: "Output (VIP Master / Transmitter, AXI5-Stream only)"
+    width: "TDATA_WIDTH/8"
+    description: "Odd parity check per byte lane of TDATA."
+
+  - name: "TLASTCHK"
+    direction: "Output (VIP Master / Transmitter, AXI5-Stream only)"
+    width: "1"
+    description: "Odd parity check bit for TLAST."
+
+  - name: "TREADYCHK"
+    direction: "Input (from DUT Slave / Receiver, AXI5-Stream only)"
+    width: "1"
+    description: "Odd parity check bit for TREADY, generated by the DUT Slave."
+
+directory_structure:
+  root: "axi_stream_master_vip_tb/"
+  folders:
+    - master_agent: "VIP Master Agent: Sequencer, Driver (drives TVALID/TDATA/TLAST/parity), Monitor"
+    - env: "UVM Environment: Scoreboard, Protocol Checker, Coverage Collector, EnvConfig"
+    - sequences: "Stimulus library: handshake variants, sparse-stream, back-to-back, null-packet, parity-gen, parity-inject, reset, interleaving, wakeup"
+    - tests: "UVM test classes mapping each scenario to sequence combinations and config overrides"
+    - assertions: "SVA property file for real-time protocol conformance (stability, reserved-encoding, parity)"
+    - top: "Simulation top: DUT (Slave) instantiation, virtual interface binding, clock and reset generation"
+    - verif_plan: "Artifacts: YAML traceability matrix, PDF report, sub-prompt reference files"

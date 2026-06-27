@@ -1,0 +1,413 @@
+project: "AXI5-Stream Protocol Verification"
+version: "1.4"
+verification_role: "Master"
+protocol_version: "AXI5-Stream"
+uvm_environment_diagram: |
+  graph TD
+      classDef test_layer  fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2;
+      classDef test_obj    fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5,color:#7b1fa2;
+      classDef env_layer   fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0;
+      classDef env_obj     fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,stroke-dasharray: 5 5,color:#1565c0;
+      classDef agent_layer fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c;
+      classDef agent_obj   fill:#e0f2f1,stroke:#00695c,stroke-width:2px,stroke-dasharray: 5 5,color:#00695c;
+      classDef dut_layer   fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17;
+
+      subgraph UVM_Test_Layer [uvm_test]
+          Test_Cfg[axi_stream_master_test_config]:::test_obj
+          SeqItem[axi_stream_master_seq_item]:::test_obj
+          Seq[axi_stream_master_sequence]:::test_obj
+          subgraph Env_Layer [uvm_env]
+              Scoreboard[axi_stream_master_scoreboard]:::env_layer
+              Env_Cfg[axi_stream_master_env_config]:::env_obj
+              subgraph Agent_Layer [AXI Stream Master Agent]
+                  Sequencer[axi_stream_master_sequencer]:::agent_layer
+                  Agent_Cfg[axi_stream_master_agent_config]:::agent_obj
+                  Driver[axi_stream_master_driver]:::agent_layer
+                  Monitor[axi_stream_master_monitor]:::agent_layer
+                  Callback[axi_stream_master_callback]:::agent_obj
+                  Sequencer --> Driver
+                  Callback --> Driver
+                  Agent_Cfg --> Sequencer
+              end
+              Env_Cfg --> Scoreboard
+          end
+          Test_Cfg --> Seq
+          SeqItem --> Seq
+      end
+
+      Seq --> Sequencer
+      subgraph Top_Level [Hardware Top Level]
+          VIF[Virtual Interface]:::dut_layer
+          DUT["DUT (Slave Receiver)"]:::dut_layer
+          VIF <--> DUT
+      end
+
+      Driver  --- VIF
+      Monitor --- VIF
+      Monitor --> Scoreboard
+      class UVM_Test_Layer test_layer;
+      class Env_Layer env_layer;
+      class Agent_Layer agent_layer;
+      class Top_Level dut_layer;
+
+test_requirements:
+  - id: "REQ_MST_01"
+    feature: "Handshake"
+    sub_feature: "TVALID Stability"
+    name: "TVALID Persistence Until Handshake"
+    spec_ref: "Section 2.2.1, Page 2-18"
+    description: |
+      The AXI-Stream protocol mandates that once TVALID is asserted by the Master, it must remain HIGH until a successful handshake (TVALID & TREADY) occurs. This prevents the loss of data or corruption of the stream state.
+      The VIP Master Driver must be configured to assert TVALID and maintain it regardless of TREADY backpressure. The monitor must flag a protocol violation if TVALID drops without TREADY being asserted.
+
+  - id: "REQ_MST_02"
+    feature: "Handshake"
+    sub_feature: "Flow Control"
+    name: "Two-way Flow Control Handshake"
+    spec_ref: "Section 2.2, Page 2-18"
+    description: |
+      Verification of the bidirectional flow control mechanism where either TVALID or TREADY can be asserted first. The protocol allows for zero-wait-state transfers where both are asserted in the same cycle.
+      Test cases must cover all three handshake scenarios: TVALID before TREADY, TREADY before TVALID, and simultaneous assertion. This ensures the Master correctly interprets the Slave's readiness.
+
+  - id: "REQ_MST_03"
+    feature: "Data Transfer"
+    sub_feature: "TDATA Integrity"
+    name: "Payload Data Integrity"
+    spec_ref: "Section 2.4, Page 2-21"
+    description: |
+      The primary payload TDATA must be correctly transmitted from the Master to the Slave without corruption. The width of TDATA must be an integer number of bytes.
+      The scoreboard must compare the data driven by the Master VIP against the data sampled at the Slave interface, ensuring bit-accurate transfer across all byte lanes.
+
+  - id: "REQ_MST_04"
+    feature: "Byte Qualification"
+    sub_feature: "TKEEP/TSTRB Logic"
+    name: "Byte Lane Qualification and Null Bytes"
+    spec_ref: "Section 2.5, Page 2-24"
+    description: |
+      TKEEP and TSTRB signals qualify the content of TDATA. TKEEP indicates if a byte is a null byte (to be removed), while TSTRB distinguishes between data and position bytes.
+      Verification must ensure that the Master correctly drives these qualifiers to support sparse streams and unaligned packet starts/ends. Illegal combinations (TKEEP=LOW, TSTRB=HIGH) must be checked.
+
+  - id: "REQ_MST_05"
+    feature: "Packet Boundaries"
+    sub_feature: "TLAST Signaling"
+    name: "Packet Demarcation with TLAST"
+    spec_ref: "Section 2.6, Page 2-26"
+    description: |
+      TLAST is used to indicate the end of a packet or frame. It allows interconnects to perform arbitration and buffer management efficiently.
+      Test scenarios must verify that the Master correctly asserts TLAST at packet boundaries. Negative tests should include \"infinite\" packets where TLAST is never pulsed to check Slave overflow handling.
+
+  - id: "REQ_MST_06"
+    feature: "Source/Destination"
+    sub_feature: "TID/TDEST Routing"
+    name: "Stream and Routing Identifiers"
+    spec_ref: "Section 2.7, Page 2-27"
+    description: |
+      TID identifies the stream source, and TDEST provides routing information. These signals allow multiple logical streams to be interleaved on a single physical link.
+      The verification environment must verify that the Master can switch TID/TDEST between transfers and that the Slave correctly demultiplexes or routes the data based on these IDs.
+
+  - id: "REQ_MST_07"
+    feature: "Sideband"
+    sub_feature: "TUSER Information"
+    name: "User-defined Sideband Integrity"
+    spec_ref: "Section 2.9, Page 2-29"
+    description: |
+      TUSER provides a mechanism for transport-layer metadata. It is recommended to be an integer multiple of the data width in bytes.
+      The VIP must verify that TUSER bits are correctly associated with their respective bytes and that trimming/padding rules are followed if the bus width changes in an interconnect.
+
+  - id: "REQ_MST_08"
+    feature: "AXI5 Features"
+    sub_feature: "TWAKEUP Signaling"
+    name: "Low Power Wakeup Handshake"
+    spec_ref: "Section 2.3, Page 2-20"
+    description: |
+      AXI5-Stream introduced TWAKEUP to indicate interface activity. It must be glitch-free and can be asserted before TVALID.
+      Verification must ensure the Master asserts TWAKEUP to exit low-power states before initiating transfers and maintains it until the transfer completes.
+
+  - id: "REQ_MST_09"
+    feature: "AXI5 Features"
+    sub_feature: "Parity Protection"
+    name: "Interface Parity Error Detection"
+    spec_ref: "Chapter 5, Page 5-43"
+    description: |
+      AXI5 parity (TDATACHK, TVALIDCHK, etc.) uses odd parity over 8-bit groups to detect single-bit flips.
+      The Master VIP must correctly generate parity bits for all signals. Negative testing must inject parity errors by flipping bits in the CHK signals to verify Slave error detection.
+
+  - id: "REQ_MST_10"
+    feature: "System"
+    sub_feature: "Reset Compliance"
+    name: "Synchronous Reset and TVALID Gating"
+    spec_ref: "Section 2.8.2, Page 2-28"
+    description: |
+      During reset (ARESETn LOW), TVALID must be driven LOW. All other signals have indeterminate values. TVALID remains LOW until the first ACLK edge after ARESETn deassertion.
+      The VIP must verify that no spurious transfers occur during reset and that the Master starts the handshake protocol correctly immediately after reset is released.
+
+test_cases:
+  - id: "TC_MST_001"
+    scenario: "VIP Master drives a single-beat transfer with all byte lanes enabled (TKEEP=all 1s, TSTRB=all 1s, TLAST=1)."
+    mapping: ["REQ_MST_02", "REQ_MST_03", "REQ_MST_05"]
+  - id: "TC_MST_002"
+    scenario: "VIP Master drives a burst of 10 transfers while the Slave (DUT) holds TREADY HIGH, verifying max throughput."
+    mapping: ["REQ_MST_02", "REQ_MST_03"]
+  - id: "TC_MST_003"
+    scenario: "VIP Master asserts TVALID and waits 5 clock cycles before Slave asserts TREADY, verifying REQ_MST_01 stability."
+    mapping: ["REQ_MST_01", "REQ_MST_02"]
+  - id: "TC_MST_004"
+    scenario: "Slave (DUT) asserts TREADY before Master drives TVALID, verifying the Master performs a zero-wait-state handshake."
+    mapping: ["REQ_MST_02"]
+  - id: "TC_MST_005"
+    scenario: "VIP Master drives random TDATA values for 100 transfers and ensures the scoreboard confirms data integrity."
+    mapping: ["REQ_MST_03"]
+  - id: "TC_MST_006"
+    scenario: "VIP Master drives a 'Null Packet' where TVALID=1, TLAST=1, but all TKEEP bits are 0. Verify Slave ignores data."
+    mapping: ["REQ_MST_04"]
+  - id: "TC_MST_007"
+    scenario: "VIP Master drives a Sparse Stream with interleaved data and position bytes (TSTRB toggling)."
+    mapping: ["REQ_MST_04"]
+  - id: "TC_MST_008"
+    scenario: "VIP Master drives back-to-back packets with zero idle cycles between TLAST=1 and the next TVALID=1."
+    mapping: ["REQ_MST_05"]
+  - id: "TC_MST_009"
+    scenario: "VIP Master interleaves two streams by rapidly switching TID (e.g., Stream A, then B, then A)."
+    mapping: ["REQ_MST_06"]
+  - id: "TC_MST_010"
+    scenario: "VIP Master drives packets to multiple destinations by varying TDEST values."
+    mapping: ["REQ_MST_06"]
+  - id: "TC_MST_011"
+    scenario: "VIP Master drives randomized TUSER sideband values for every beat and verifies receipt."
+    mapping: ["REQ_MST_07"]
+  - id: "TC_MST_012"
+    scenario: "VIP Master asserts TWAKEUP, waits 3 cycles for 'wake latency', then drives TVALID."
+    mapping: ["REQ_MST_08"]
+  - id: "TC_MST_013"
+    scenario: "VIP Master drives valid transfers while asserting correct parity on TDATACHK (Odd Parity)."
+    mapping: ["REQ_MST_09"]
+  - id: "TC_MST_014"
+    scenario: "Negative: VIP Master injects a single-bit error on TDATA and expects Slave to flag parity error (if supported)."
+    mapping: ["REQ_MST_09"]
+  - id: "TC_MST_015"
+    scenario: "VIP Master deasserts ARESETn and drives TVALID on the very next rising edge of ACLK."
+    mapping: ["REQ_MST_10"]
+  - id: "TC_MST_016"
+    scenario: "VIP Master performs a transfer where TREADY is deasserted mid-packet. Master must hold TVALID and TDATA."
+    mapping: ["REQ_MST_01", "REQ_MST_02"]
+  - id: "TC_MST_017"
+    scenario: "VIP Master drives unaligned packet start (first beat TKEEP is not all 1s)."
+    mapping: ["REQ_MST_04"]
+  - id: "TC_MST_018"
+    scenario: "VIP Master drives unaligned packet end (final beat TKEEP is not all 1s)."
+    mapping: ["REQ_MST_04"]
+  - id: "TC_MST_019"
+    scenario: "VIP Master drives a single-beat packet (TLAST=1) where all bytes are position bytes (TSTRB=0)."
+    mapping: ["REQ_MST_04", "REQ_MST_05"]
+  - id: "TC_MST_020"
+    scenario: "VIP Master drives 5000 transfers with randomized TREADY wait states to stress handshake logic."
+    mapping: ["REQ_MST_02"]
+  - id: "TC_MST_021"
+    scenario: "VIP Master asserts ARESETn in the middle of a multi-beat packet. TVALID must immediately drop."
+    mapping: ["REQ_MST_10"]
+  - id: "TC_MST_022"
+    scenario: "VIP Master drives TUSER bits with TKEEP=LOW. Verify TUSER is correctly masked or ignored by interconnect."
+    mapping: ["REQ_MST_07"]
+  - id: "TC_MST_023"
+    scenario: "VIP Master drives a frame consisting of exactly 8 packets. Master preserves TLAST assertions."
+    mapping: ["REQ_MST_05"]
+  - id: "TC_MST_024"
+    scenario: "VIP Master drives TWAKEUP and TVALID simultaneously, ensuring TWAKEUP stays high until handshake."
+    mapping: ["REQ_MST_08"]
+  - id: "TC_MST_025"
+    scenario: "Negative: Master VIP drops TVALID before TREADY is asserted. Monitor must catch this protocol violation."
+    mapping: ["REQ_MST_01"]
+  - id: "TC_MST_026"
+    scenario: "VIP Master drives maximum TID width (e.g., 8-bit ID) and verifies ID isolation."
+    mapping: ["REQ_MST_06"]
+  - id: "TC_MST_027"
+    scenario: "VIP Master drives packets with random TLAST duration (from 1 beat to 1024 beats)."
+    mapping: ["REQ_MST_05"]
+  - id: "TC_MST_028"
+    scenario: "VIP Master drives TDATA with odd number of set bits and ensures TDATACHK is LOW (Odd Parity check)."
+    mapping: ["REQ_MST_09"]
+  - id: "TC_MST_029"
+    scenario: "VIP Master drives TDATA with even number of set bits and ensures TDATACHK is HIGH (Odd Parity check)."
+    mapping: ["REQ_MST_09"]
+  - id: "TC_MST_030"
+    scenario: "VIP Master drives TWAKEUP then deasserts it WITHOUT driving TVALID (permitted but not recommended)."
+    mapping: ["REQ_MST_08"]
+  - id: "TC_MST_031"
+    scenario: "VIP Master drives 64-bit wide TDATA and verifies TSTRB/TKEEP mapping to each byte lane."
+    mapping: ["REQ_MST_04"]
+  - id: "TC_MST_032"
+    scenario: "VIP Master drives transfers with TID/TDEST change only when TLAST=1 (Continuous Packet mode simulation)."
+    mapping: ["REQ_MST_05", "REQ_MST_06"]
+
+coverage_groups:
+  - name: "cg_handshake"
+    description: "Cross of TVALID and TREADY to cover all handshake scenarios."
+    mapping: ["REQ_MST_01", "REQ_MST_02"]
+  - name: "cg_data_width"
+    description: "Coverage of TDATA values across all byte lanes, including all zero and all one toggling."
+    mapping: ["REQ_MST_03"]
+  - name: "cg_qualifiers"
+    description: "Coverage of all valid TKEEP and TSTRB bitmask combinations."
+    mapping: ["REQ_MST_04"]
+  - name: "cg_packet_boundary"
+    description: "Coverage of TLAST transitions and packet lengths."
+    mapping: ["REQ_MST_05"]
+  - name: "cg_stream_ids"
+    description: "Coverage of TID and TDEST ranges to ensure all routing paths are tested."
+    mapping: ["REQ_MST_06"]
+  - name: "cg_sideband_user"
+    description: "Coverage of TUSER bit toggling."
+    mapping: ["REQ_MST_07"]
+  - name: "cg_wakeup"
+    description: "Coverage of TWAKEUP assertion prior to and during TVALID."
+    mapping: ["REQ_MST_08"]
+  - name: "cg_parity"
+    description: "Coverage of parity bit generation for TDATA, TID, TDEST, and TUSER."
+    mapping: ["REQ_MST_09"]
+  - name: "cg_reset_sync"
+    description: "Coverage of ACLK edges relative to ARESETn deassertion."
+    mapping: ["REQ_MST_10"]
+
+interface_signals:
+  - name: "ACLK"
+    direction: "Input"
+    width: "1"
+    description: "Global Clock Signal. All signals sampled on rising edge."
+  - name: "ARESETn"
+    direction: "Input"
+    width: "1"
+    description: "Active-LOW Synchronous Reset. TVALID must be LOW during reset."
+  - name: "TVALID"
+    direction: "Output"
+    width: "1"
+    description: "Indicates Master is driving a valid transfer."
+  - name: "TREADY"
+    direction: "Input"
+    width: "1"
+    description: "Indicates Slave can accept a transfer."
+  - name: "TDATA"
+    direction: "Output"
+    width: "TDATA_WIDTH"
+    description: "Primary data payload."
+  - name: "TSTRB"
+    direction: "Output"
+    width: "TDATA_WIDTH/8"
+    description: "Byte qualifier for data/position bytes."
+  - name: "TKEEP"
+    direction: "Output"
+    width: "TDATA_WIDTH/8"
+    description: "Byte qualifier for null byte removal."
+  - name: "TLAST"
+    direction: "Output"
+    width: "1"
+    description: "Indicates end of packet boundary."
+  - name: "TID"
+    direction: "Output"
+    width: "TID_WIDTH"
+    description: "Stream Source Identifier."
+  - name: "TDEST"
+    direction: "Output"
+    width: "TDEST_WIDTH"
+    description: "Course Routing Destination Identifier."
+  - name: "TUSER"
+    direction: "Output"
+    width: "TUSER_WIDTH"
+    description: "User-defined sideband information."
+  - name: "TWAKEUP"
+    direction: "Output"
+    width: "1"
+    description: "AXI5 Power Wakeup signal."
+  - name: "TDATACHK"
+    direction: "Output"
+    width: "TDATA_WIDTH/8"
+    description: "AXI5 Parity bits for TDATA."
+
+directory_structure:
+  root: "axi_stream_master_vip_tb/"
+  folders:
+    - master_agent: "axi_stream_master_driver.sv, axi_stream_master_monitor.sv, axi_stream_master_sequencer.sv, axi_stream_master_agent_config.sv, axi_stream_master_agent.sv, axi_stream_master_callback.sv"
+    - env: "axi_stream_master_scoreboard.sv, axi_stream_master_env_config.sv, axi_stream_master_env.sv"
+    - sequences: "axi_stream_master_base_seq.sv, axi_stream_master_burst_seq.sv, axi_stream_master_seq_item.sv"
+    - top: "axi_stream_master_tb_top.sv, axi_stream_master_test.sv, axi_stream_master_defines.sv, axi_stream_master_if.sv"
+
+code_snippets:
+  - title: "axi_stream_master_defines.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_defines
+      EXTENDS: N/A
+      MEMBERS:
+        - parameter TDATA_WIDTH = 32
+        - parameter TID_WIDTH = 8
+        - parameter TDEST_WIDTH = 4
+        - parameter TUSER_WIDTH = 4
+        - parameter HAS_PARITY = 1
+        - parameter HAS_WAKEUP = 1
+      LOGIC:
+        - Centralized global parameters to ensure interface-to-transaction width consistency.
+
+  - title: "axi_stream_master_seq_item.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_seq_item
+      EXTENDS: uvm_sequence_item
+      MEMBERS:
+        - rand [bit[TDATA_WIDTH-1:0]] tdata
+        - rand [bit[TDATA_WIDTH/8-1:0]] tkeep
+        - rand [bit[TDATA_WIDTH/8-1:0]] tstrb
+        - rand [bit] tlast
+        - rand [bit[TID_WIDTH-1:0]] tid
+        - rand [bit[TDEST_WIDTH-1:0]] tdest
+        - rand [bit[TUSER_WIDTH-1:0]] tuser
+        - rand [int] delay_cycles (Range 0-10)
+      METHODS & LOGIC:
+        - do_copy/do_compare: Implementation for deep transaction comparison.
+        - constraint valid_qualifiers: TKEEP & !TSTRB == Reserved (Forbidden).
+
+  - title: "axi_stream_master_driver.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_driver
+      EXTENDS: uvm_driver
+      CONFIG_REF: axi_stream_master_agent_config
+      MEMBERS:
+        - virtual axi_stream_if vif
+      METHODS & LOGIC:
+        - run_phase:
+            1. Reset Handling: Wait for ARESETn=1. Drive TVALID=0.
+            2. Main Loop:
+               - Get item from sequencer.
+               - If HAS_WAKEUP, assert TWAKEUP, wait config.latency.
+               - Drive TDATA, TKEEP, TSTRB, TLAST, TID, TDEST, TUSER.
+               - Calculated Odd Parity and drive TDATACHK.
+               - Assert TVALID.
+               - Wait for rising edge of ACLK where VIF.TREADY == 1.
+               - Deassert TVALID (or hold for next beat).
+               - Signal item_done.
+
+  - title: "axi_stream_master_monitor.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_monitor
+      EXTENDS: uvm_monitor
+      MEMBERS:
+        - virtual axi_stream_if vif
+        - uvm_analysis_port #(axi_stream_master_seq_item) ap
+      METHODS & LOGIC:
+        - run_phase:
+            - Forever Loop:
+              - Sample signals on ACLK rising edge.
+              - If TVALID == 1 and TREADY == 1 (Handshake):
+                - Create seq_item.
+                - Populate item from physical pins.
+                - Perform immediate parity check (if enabled).
+                - Write to analysis port.
+              - Check for REQ_MST_01 violation: If TVALID falls without handshake.
+
+  - title: "axi_stream_master_scoreboard.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_scoreboard
+      EXTENDS: uvm_scoreboard
+      MEMBERS:
+        - uvm_tlm_analysis_fifo #(axi_stream_master_seq_item) master_fifo
+        - bit [7:0] local_ref_mem [int]
+      METHODS & LOGIC:
+        - write_master: Function to capture and store expected data in association with TID.
+        - check_phase: Compare local reference model against monitored Slave (monitored via slave_fifo - out of scope for this plan).
+        - Focus on REQ_MST_03 (Integrity) and REQ_MST_05 (TLAST packet markers).

@@ -1,0 +1,122 @@
+project: "AXI-Stream Slave DUT"
+version: "3.0"
+dut_role: "Slave"
+protocol_version: "AXI4-Stream / AXI5-Stream"
+configurations:
+  - feature: "Ordering (OoO)"
+    status: "Strictly Ordered"
+    description: "Reordering is not permitted by protocol. All transfers must maintain absolute order."
+  - feature: "Packet Structure"
+    status: "Supported (Aligned/Sparse)"
+    description: "Supports continuous aligned, unaligned, and sparse streams via TKEEP and TSTRB."
+  - feature: "Interleaving"
+    status: "Optional (Transfer-level)"
+    description: "Interleaving is supported based on TID; can be disabled via Continuous_Packets property."
+  - feature: "AXI5 Features"
+    status: "Supported"
+    description: "Includes TWAKEUP signaling and interface parity protection (Odd Parity)."
+uvm_environment_diagram: |
+  graph TD
+      %% Layered Style Definitions
+      classDef test_layer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2;
+      classDef test_obj fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5,color:#7b1fa2;
+      classDef env_layer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0;
+      classDef env_obj fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,stroke-dasharray: 5 5,color:#1565c0;
+      classDef agent_layer fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c;
+      classDef agent_obj fill:#e0f2f1,stroke:#00695c,stroke-width:2px,stroke-dasharray: 5 5,color:#00695c;
+      classDef dut_layer fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17;
+
+      subgraph UVM_Test_Layer [uvm_test]
+          direction TB
+          Test_Cfg[axi-stream_test_config]:::test_obj
+          Seq[axi-stream_sequence]:::test_obj
+          subgraph Env_Layer [uvm_env]
+              direction TB
+              Env_Cfg[axi-stream_env_config]:::env_obj
+              Scoreboard[axi-stream_scoreboard]:::env_layer
+              subgraph Agent_Layer [Master Agent]
+                  direction TB
+                  Agent_Cfg[axi-stream_agent_config]:::agent_obj
+                  Sequencer[axi-stream_sequencer]:::agent_layer
+                  Driver[axi-stream_driver]:::agent_layer
+                  Monitor[axi-stream_monitor]:::agent_layer
+                  Sequencer --> Driver
+              end
+          end
+      end
+
+      Seq -->|starts on| Sequencer
+      subgraph Top_Level [Hardware Top]
+          VIF[Virtual Interface]:::interface
+          DUT[AXI-Stream Slave DUT]:::interface
+          VIF <--> DUT
+      end
+
+      Driver --- VIF
+      Monitor --- VIF
+      Monitor -- "Analysis Port" --> Scoreboard
+      class UVM_Test_Layer test_layer;
+      class Env_Layer env_layer;
+      class Agent_Layer agent_layer;
+      class Top_Level dut_layer;
+      class VIF,DUT dut_layer;
+test_requirements:
+  - id: "REQ_HANDSHAKE_01"
+    name: "TVALID/TREADY Handshake Rules"
+    spec_ref: "Section 2.2, Page 2-18"
+    description: |
+      Verification of the 2-way flow control. TVALID must not wait for TREADY.
+      TVALID must remain stable until TREADY is asserted.
+  - id: "REQ_BYTE_QUAL_01"
+    name: "TKEEP and TSTRB Handling"
+    spec_ref: "Section 2.5, Page 2-24"
+    description: |
+      Correct identification of valid bytes (TKEEP) and data vs position bytes (TSTRB).
+  - id: "REQ_PARITY_01"
+    name: "Odd Parity Protection"
+    spec_ref: "Chapter 5, Page 5-44"
+    description: |
+      Identify single-bit flips on TDATA, TSTRB, TKEEP, TLAST, TID, TDEST, and TUSER.
+test_cases:
+  - id: "TC_RAND_PKT_SIZE"
+    scenario: "Send packets with randomized beat counts and TREADY backpressure."
+    mapping: ["REQ_HANDSHAKE_01"]
+  - id: "TC_SPARSE_STRM"
+    scenario: "Verify slave can handle sparse streams with intermittent TKEEP/TSTRB bits."
+    mapping: ["REQ_BYTE_QUAL_01"]
+  - id: "TC_PARITY_ERR"
+    scenario: "Inject odd parity errors on TDATACHK and verify error signal detection."
+    mapping: ["REQ_PARITY_01"]
+coverage_groups:
+  - name: "cg_handshake"
+    description: "Coverage for TVALID/TREADY being HIGH/LOW simultaneously."
+    mapping: ["REQ_HANDSHAKE_01"]
+  - name: "cg_data_width"
+    description: "Ensure all data bits in TDATA have toggled."
+    mapping: ["REQ_BYTE_QUAL_01"]
+interface_signals:
+  - name: "ACLK"
+    direction: "In"
+    width: "1"
+    description: "Clock"
+  - name: "TVALID"
+    direction: "In"
+    width: "1"
+    description: "Transmit valid"
+  - name: "TREADY"
+    direction: "Out"
+    width: "1"
+    description: "Receive ready"
+  - name: "TDATA"
+    direction: "In"
+    width: "DATA_WIDTH"
+    description: "Payload"
+  - name: "TDATACHK"
+    direction: "In"
+    width: "DATA_WIDTH/8"
+    description: "Parity bits (AXI5)"
+directory_structure:
+  root: "axi_strm_slv_env/"
+  folders:
+    - agent: "Master driving Slave"
+    - env: "UVM Environment"

@@ -4,3 +4,33 @@
 
 # LangGraph
 .langgraph_api/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Tool / runtime caches
+.cache/
+vector_db/
+
+# Simulation run outputs
+run/
+
+# QuestaSim / VCS compiled library artifacts
+Output/**/work/
+*.qdb
+*.qpg
+*.qtl
+*.tfdb
+*.log
+
+# Intermediate generated files
+json/
+markdown/
+
+# Temp / log files
+startup_err.txt
+
+# Misnamed output directories
+VerificationVERIFICATION_PLANNEROutputaxi_stream_master_vip_tb/

@@ -1,0 +1,247 @@
+project: "AXI-Stream Master VIP Verification Plan"
+version: "17.0"
+verification_role: "Master"
+protocol_version: "AXI4/5-Stream (ARM IHI 0051B, Issue B)"
+
+configurations:
+  - feature: "AXI5 Wakeup"
+    name: "Wakeup_Signal_Support"
+    impact: "Functional impact requires tracking TWAKEUP states in the driver before TVALID assertion. Performance impact involves verifying exit latency from low power."
+  - feature: "Data Width Adaptation"
+    name: "TDATA_Width_Config"
+    impact: "Functional impact requires reconfiguring scoreboard comparison to handle upsizing/downsizing null byte insertion."
+  - feature: "Interface Protection"
+    name: "Parity_Check_Enable"
+    impact: "Functional impact triggers error injection sequences for TDATACHK parity faults. Requires hardened monitor checks."
+
+uvm_environment_diagram: |
+  graph TD
+    classDef test_layer  fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2;
+    classDef test_obj    fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5,color:#7b1fa2;
+    classDef env_layer   fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0;
+    classDef env_obj     fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,stroke-dasharray: 5 5,color:#1565c0;
+    classDef agent_layer fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c;
+    classDef agent_obj   fill:#e0f2f1,stroke:#00695c,stroke-width:2px,stroke-dasharray: 5 5,color:#00695c;
+    classDef dut_layer   fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17;
+
+    subgraph UVM_Test_Layer [uvm_test]
+        Test_Cfg[axi_test_config]:::test_obj
+        SeqItem[axi_seq_item]:::test_obj
+        Seq[axi_sequence]:::test_obj
+        subgraph Env_Layer [uvm_env]
+            Scoreboard[axi_scoreboard]:::env_layer
+            Env_Cfg[axi_env_config]:::env_obj
+            subgraph Agent_Layer [Master Agent]
+                Sequencer[axi_sequencer]:::agent_layer
+                Agent_Cfg[axi_agent_config]:::agent_obj
+                Driver[axi_driver]:::agent_layer
+                Monitor[axi_monitor]:::agent_layer
+                Callback[axi_callback]:::agent_obj
+                Sequencer --> Driver
+                Callback --> Driver
+                Agent_Cfg --> Sequencer
+            end
+            Env_Cfg --> Scoreboard
+        end
+        Test_Cfg --> Seq
+        SeqItem --> Seq
+    end
+
+    Seq --> Sequencer
+    subgraph Top_Level [Hardware Top]
+        VIF[Virtual Interface]:::dut_layer
+        DUT[DUT Slave Receiver]:::dut_layer
+        VIF <--> DUT
+    end
+
+    Driver  --- VIF
+    Monitor --- VIF
+    Monitor --> Scoreboard
+    class UVM_Test_Layer test_layer;
+    class Env_Layer env_layer;
+    class Agent_Layer agent_layer;
+    class Top_Level dut_layer;
+
+test_requirements:
+  - id: "REQ_MST_01"
+    feature: "Handshake"
+    sub_feature: "TVALID Stability"
+    name: "TVALID asserted until TREADY"
+    spec_ref: "Section 2.2, Page 2-18"
+    description: |
+      The protocol requires that once TVALID is asserted, it must remain HIGH until a valid handshake (TVALID & TREADY) occurs. Pre-mature de-assertion causes data loss.
+      Strategy: Verification involves driving TVALID and randomly stalling TREADY for 1-50 cycles while monitoring TTDATA stability.
+
+  - id: "REQ_MST_02"
+    feature: "Packet Boundaries"
+    sub_feature: "TLAST Marking"
+    name: "TLAST End of Packet"
+    spec_ref: "Section 2.6, Page 2-26"
+    description: |
+      TLAST marks the final transfer of a packet. Downstream components use this to trigger frame processing or buffer flushing.
+      Strategy: Generate varied packet lengths (1 to 4096 beats) and verify that TLAST is exclusively asserted on the final beat.
+
+  - id: "REQ_MST_03"
+    feature: "Data Integrity"
+    sub_feature: "Parity Check"
+    name: "AXI5 TDATACHK Protection"
+    spec_ref: "Section 5.3, Page 5-46"
+    description: |
+      AXI5-Stream introduces TDATACHK lines for parity. Errors must be detected by the receiver and potentially reported via system interrupts.
+      Strategy: Negative scenario involves flipping a random data bit or parity bit and verifying the Monitor flags a protocol violation.
+
+  - id: "REQ_MST_04"
+    feature: "Low Power"
+    sub_feature: "Wakeup Handshake"
+    name: "TWAKEUP Assertion Priority"
+    spec_ref: "Section 2.3, Page 2-20"
+    description: |
+      TWAKEUP must indicate activity and ideally trigger at least one cycle before TVALID.
+      Strategy: Test sequence activates TWAKEUP, waits for programmable latency, then starts TVALID. Monitor checks for TWAKEUP=0 during transfers.
+
+test_cases:
+  - id: "TC_MST_001"
+    scenario: "Drive back-to-back 1-beat packets with 0-cycle TREADY delay."
+    mapping: ["REQ_MST_01", "REQ_MST_02"]
+  - id: "TC_MST_002"
+    scenario: "Inject 20-cycle TREADY stall and verify TDATA remains constant during VALID phase."
+    mapping: ["REQ_MST_01"]
+  - id: "TC_MST_003"
+    scenario: "Generate Sparse Stream where TKEEP alternates between 0 and 1 every beat."
+    mapping: ["REQ_MST_02"]
+  - id: "TC_MST_004"
+    scenario: "Negative: Force TVALID LOW while TREADY is LOW after initial assertion."
+    mapping: ["REQ_MST_01"]
+  - id: "TC_MST_005"
+    scenario: "Inject single-bit parity fault on TDATACHK during a 16-beat packet."
+    mapping: ["REQ_MST_03"]
+  - id: "TC_MST_006"
+    scenario: "Simultaneous TVALID and TWAKEUP assertion; verify TREADY waits for stabilization."
+    mapping: ["REQ_MST_04"]
+
+coverage_groups:
+  - name: "cg_handshake_stalls"
+    description: "Cross-coverage of TREADY stall durations and TVALID assertion states."
+    mapping: ["REQ_MST_01"]
+  - name: "cg_packet_lengths"
+    description: "Binned coverage of packet sizes from 1 beat to max frame depth."
+    mapping: ["REQ_MST_02"]
+
+interface_signals:
+  - name: "ACLK"
+    direction: "Input"
+    width: "1"
+    description: "Global clock signal."
+  - name: "ARESETn"
+    direction: "Input"
+    width: "1"
+    description: "Global active-LOW reset."
+  - name: "TVALID"
+    direction: "Output"
+    width: "1"
+    description: "Indicates Transmitter driving valid transfer."
+  - name: "TREADY"
+    direction: "Input"
+    width: "1"
+    description: "Indicates Receiver can accept transfer."
+  - name: "TDATA"
+    direction: "Output"
+    width: "`TDATA_WIDTH"
+    description: "Primary payload data channel."
+  - name: "TKEEP"
+    direction: "Output"
+    width: "`TDATA_WIDTH/8"
+    description: "Byte qualifier for data stream membership."
+  - name: "TLAST"
+    direction: "Output"
+    width: "1"
+    description: "Packet boundary marker."
+  - name: "TWAKEUP"
+    direction: "Output"
+    width: "1"
+    description: "AXI5 activity indicator."
+
+directory_structure:
+  root: "axi_stream_master_vip_tb/"
+  folders:
+    - master_agent: "axi_stream_master_driver.sv, axi_stream_master_monitor.sv, axi_stream_master_agent_config.sv, axi_stream_master_callback.sv, axi_stream_master_sequencer.sv"
+    - env: "axi_stream_master_scoreboard.sv, axi_stream_master_env_config.sv"
+    - sequences: "axi_stream_master_base_sequence.sv, axi_stream_master_seq_item.sv"
+    - top: "axi_stream_master_tb_top.sv, axi_stream_master_test.sv, axi_stream_master_defines.sv"
+
+code_snippets:
+  - title: "axi_stream_master_defines.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: Global Defines
+      PARAMETERS:
+        - TDATA_WIDTH: 32 (Configurable to 64/128)
+        - TID_WIDTH: 8
+        - HAS_AXI5: 1
+        - MAX_STALL: 100
+      LOGIC:
+        - Centralized parameterization for all Width-dependent signal arrays across the environment components.
+
+  - title: "axi_stream_master_seq_item.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_seq_item
+      EXTENDS: uvm_sequence_item
+      MEMBERS:
+        - rand logic [`TDATA_WIDTH-1:0] data
+        - rand logic [`TDATA_WIDTH/8-1:0] keep
+        - rand bit last
+        - rand int delay
+      LOGIC:
+        - constraint c_delay { delay inside {[0:`MAX_STALL]}; }
+        - constraint c_keep { keep != 0; } (Baseline validity)
+
+  - title: "axi_stream_master_driver.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_driver
+      EXTENDS: uvm_driver #(axi_stream_master_seq_item)
+      CONFIG_REF: axi_stream_master_agent_config (Source: ConfigDB)
+      MEMBERS:
+        - virtual interface axi_stream_if vif
+        - axi_stream_master_agent_config m_cfg
+      LOGIC:
+        - build_phase: Retrieve m_cfg from DB; assign vif handle from m_cfg.vif.
+        - run_phase:
+            - Wait for ARESETn to release.
+            - forever:
+                - get_next_item(req).
+                - Drive TDATA, TKEEP, TLAST.
+                - Assert TVALID.
+                - Wait for @(posedge vif.ACLK) until (vif.TREADY === 1).
+                - item_done(req).
+
+  - title: "axi_stream_master_agent.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_agent
+      EXTENDS: uvm_agent
+      CONFIG_REF: axi_stream_master_agent_config (Source: ConfigDB)
+      MEMBERS:
+        - axi_stream_master_driver m_driver
+        - axi_stream_master_monitor m_monitor
+        - axi_stream_master_sequencer m_sqr
+        - axi_stream_master_agent_config m_cfg
+      LOGIC:
+        - build_phase:
+            - Create m_monitor (unconditional).
+            - if(m_cfg.is_active == UVM_ACTIVE): Create m_driver and m_sqr.
+        - connect_phase:
+            - if(m_cfg.is_active == UVM_ACTIVE): m_driver.seq_item_port.connect(m_sqr.seq_item_export).
+
+  - title: "axi_stream_master_test.sv (Architecture Blueprint)"
+    code: |
+      COMPONENT: axi_stream_master_test
+      EXTENDS: uvm_test
+      MEMBERS:
+        - axi_stream_master_env m_env
+        - axi_stream_master_env_config m_env_cfg
+        - axi_stream_master_agent_config m_agent_cfg
+      LOGIC:
+        - build_phase:
+            - Instantiate m_env_cfg and m_agent_cfg.
+            - Set VIF handle and activity flags.
+            - uvm_config_db#(env_cfg)::set(this, "*", "env_cfg", m_env_cfg).
+            - uvm_config_db#(agent_cfg)::set(this, "*agent*", "agent_cfg", m_agent_cfg).
+            - Create m_env.

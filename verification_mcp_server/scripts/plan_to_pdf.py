@@ -49,6 +49,22 @@ class VerificationPlanPDF(FPDF):
         
         self.set_xy(x_start, y_start + row_height)
 
+    def draw_code_block(self, code_text):
+        """Renders a shaded, monospaced code block for SystemVerilog."""
+        self.ln(2)
+        self.set_font("courier", size=8)
+        self.set_fill_color(240, 244, 248) # Very light slate/blue-ish grey
+        self.set_draw_color(180, 180, 180) # Grey border
+        
+        safe_code = safe_str(code_text)
+        
+        # multi_cell handles splitting and page breaks
+        self.multi_cell(0, 5, txt=safe_code, border=1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        # Reset colors
+        self.set_draw_color(0, 0, 0)
+        self.ln(4)
+
 def render_mermaid(mermaid_code, output_path):
     try:
         encoded = base64.b64encode(mermaid_code.encode('utf-8')).decode('utf-8')
@@ -105,22 +121,7 @@ def generate_pdf(input_path, output_pdf_path):
             pdf.multi_cell(0, 5, txt=safe_str(data['uvm_environment_diagram']), border=1)
         pdf.ln(5)
 
-    # 2. Configurations
-    configs = data.get('configurations') or data.get('configuration')
-    if configs:
-        pdf.draw_section_header(section_idx, "Protocol Configurations")
-        section_idx += 1
-        pdf.set_font("helvetica", 'B', 10)
-        widths = [45, 55, 90]
-        pdf.draw_table_row(widths, ["Feature", "Configuration Name", "Impact"], line_height=10)
-        pdf.set_font("helvetica", size=9)
-        for conf in configs:
-            if isinstance(conf, dict):
-                feat = conf.get('feature', 'N/A')
-                name = conf.get('name') or conf.get('status', 'N/A')
-                impact = conf.get('impact') or conf.get('description', 'N/A')
-                pdf.draw_table_row(widths, [feat, name, impact], line_height=7)
-        pdf.ln(5)
+
 
     # 3. Test Requirements
     if 'test_requirements' in data:
@@ -199,6 +200,17 @@ def generate_pdf(input_path, output_pdf_path):
                         file_pointer = "|-- " if is_last_file else "|-- "
                         pdf.cell(0, 5, safe_str(f"{spacing}{file_pointer}{fname}"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.ln(5)
+
+    # 8. Code Snippets (e.g., SystemVerilog Boilerplate)
+    if 'code_snippets' in data:
+        pdf.draw_section_header(section_idx, "SystemVerilog Implementation")
+        section_idx += 1
+        for snippet in data['code_snippets']:
+            title = snippet.get('title', 'Code Snippet')
+            code = snippet.get('code', '')
+            pdf.set_font("helvetica", 'B', 10)
+            pdf.cell(0, 6, safe_str(title), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.draw_code_block(code)
 
     pdf.output(output_pdf_path)
     return output_pdf_path

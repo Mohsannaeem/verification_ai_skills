@@ -1,0 +1,92 @@
+# ==============================================================================
+# AMBA AXI-Stream Protocol Verification Plan (Master Role)
+# Version: 1.7 (Full E2E System Test - Schema Perfect)
+# ==============================================================================
+
+project: "AXI-Stream Enterprise Verification"
+version: "1.7"
+verification_role: "Master"
+
+test_requirements:
+  - {id: "REQ_HS_01", feature: "Handshake", sub_feature: "Stability", name: "Data Stability", description: "Master shall not change TDATA/TUSER while TVALID is HIGH and TREADY is LOW."}
+  - {id: "REQ_HS_02", feature: "Handshake", sub_feature: "Timing", name: "Valid Independence", description: "Master must not wait for TREADY to assert TVALID."}
+  - {id: "REQ_RST_01", feature: "Reset", sub_feature: "Suppression", name: "Reset Zero", description: "TVALID must be driven LOW during active ARESETn."}
+  - {id: "REQ_RST_02", feature: "Reset", sub_feature: "Synchronous", name: "Reset Recovery", description: "First TVALID assertion must be 1+ cycles after reset deassertion."}
+  - {id: "REQ_PKT_01", feature: "Packet", sub_feature: "Integrity", name: "ID Consistency", description: "TID/TDEST must remain constant within a packet (TLAST=LOW)."}
+  - {id: "REQ_PKT_02", feature: "Packet", sub_feature: "Boundary", name: "TLAST Signal", description: "TLAST indicates a packet boundary; must be preserved through the system."}
+  - {id: "REQ_QUAL_01", feature: "Qualifiers", sub_feature: "Strobes", name: "TSTRB Validation", description: "TSTRB identifies data bytes; illegal to have TSTRB without TDATA."}
+  - {id: "REQ_PWR_01", feature: "Power", sub_feature: "AXI5", name: "Wakeup Handshake", description: "TWAKEUP must indicate activity and stay HIGH until handshake if concurrent with TVALID."}
+
+test_cases:
+  # --- HANDSHAKE ---
+  - id: "TC_HS_01"
+    scenario: "Valid-Before-Ready: Assert TVALID. Wait 10 cycles for TREADY. Verify bit-stability."
+    mapping: ["REQ_HS_01", "REQ_HS_02"]
+  - id: "TC_HS_02"
+    scenario: "Ready-Before-Valid: Assert TREADY. Wait 5 cycles for TVALID. Verify immediate handshake."
+    mapping: ["REQ_HS_01"]
+  - id: "TC_HS_03"
+    scenario: "Master Throttle: Interleave 1-cycle TVALID gaps within a multi-beat packet."
+    mapping: ["REQ_HS_02"]
+
+  # --- RESET ---
+  - id: "TC_RST_01"
+    scenario: "Mid-Handshake Reset: Assert ARESETn while TVALID/TREADY are HIGH. Verify TVALID suppression."
+    mapping: ["REQ_RST_01"]
+  - id: "TC_RST_02"
+    scenario: "Reset Exit Timing: Attempt to drive TVALID 0 cycles after ARESETn deassertion. Verify fail."
+    mapping: ["REQ_RST_02"]
+
+  # --- PACKET & ID ---
+  - id: "TC_PKT_01"
+    scenario: "Standard 16-Beat Packet: Transfer 16 beats with TLAST on the 16th beat."
+    mapping: ["REQ_PKT_01", "REQ_PKT_02"]
+  - id: "TC_PKT_02"
+    scenario: "Zero-Data Packet (ZBT): TLAST assertion with all TKEEP/TSTRB bits LOW."
+    mapping: ["REQ_PKT_02"]
+  - id: "TC_PKT_03"
+    scenario: "TID Tampering: Change TID mid-packet without TLAST. Verify assertion."
+    mapping: ["REQ_PKT_01"]
+  - id: "TC_PKT_04"
+    scenario: "TDEST Tampering: Change TDEST mid-packet without TLAST. Verify assertion."
+    mapping: ["REQ_PKT_01"]
+
+  # --- QUALIFIERS ---
+  - id: "TC_QUAL_01"
+    scenario: "Sparse Strobe: Drive packet where only even bytes are valid (TSTRB=0x55/0xAA)."
+    mapping: ["REQ_QUAL_01"]
+  - id: "TC_QUAL_02"
+    scenario: "Sideband Stress: Randomized TUSER toggling while TVALID is LOW."
+    mapping: ["REQ_HS_01"]
+
+  # --- POWER (AXI5) ---
+  - id: "TC_PWR_01"
+    scenario: "Wakeup Latency: TWAKEUP asserted 3 cycles before first TVALID."
+    mapping: ["REQ_PWR_01"]
+  - id: "TC_PWR_02"
+    scenario: "Wakeup Deassertion Rule: Drop TWAKEUP early while TVALID is waiting. Verify violation."
+    mapping: ["REQ_PWR_01"]
+
+  # --- STRESS ---
+  - id: "TC_STR_01"
+    scenario: "Randomized Pressure: 10,000 cycles of random TVALID/TREADY/TLAST distributions."
+    mapping: ["REQ_HS_01", "REQ_PKT_01"]
+
+interface_signals:
+  - {name: "TDATA", direction: "Master", width: "TDATA_WIDTH", description: "Data payload."}
+  - {name: "TVALID", direction: "Master", width: 1, description: "Master valid indicator."}
+  - {name: "TREADY", direction: "Slave", width: 1, description: "Slave ready back-pressure."}
+  - {name: "TLAST", direction: "Master", width: 1, description: "Packet boundary."}
+  - {name: "TID", direction: "Master", width: "TID_WIDTH", description: "Stream identifier."}
+  - {name: "TDEST", direction: "Master", width: "TDEST_WIDTH", description: "Destination identifier."}
+  - {name: "TUSER", direction: "Master", width: "TUSER_WIDTH", description: "Sideband user signals."}
+  - {name: "TKEEP", direction: "Master", width: "TD_W/8", description: "Byte nullify marker."}
+  - {name: "TSTRB", direction: "Master", width: "TD_W/8", description: "Byte qualifier."}
+  - {name: "TWAKEUP", direction: "Master", width: 1, description: "AXI5 Power support."}
+  - {name: "ACLK", direction: "Global", width: 1, description: "Global clock."}
+  - {name: "ARESETn", direction: "Global", width: 1, description: "Global active-low reset."}
+
+coverage_groups:
+  - {name: "cg_handshake", description: "Exhaustive TVALID x TREADY cross with stall distributions."}
+  - {name: "cg_packet", description: "Packet lengths 1-4096 beats cross TID change."}
+  - {name: "cg_strobe", description: "All-ones, all-zeros, and walking-bit TSTRB patterns."}

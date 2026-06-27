@@ -1,0 +1,58 @@
+# EDA Buddy Build Manifest (Auto-Generated)
+project:
+  name: axi_stream_slave_vip_tb
+  top_module: axi_stream_slave_vip_tb_top
+  timescale: 1ns/1ps
+  uvm_version: '1.2'
+paths:
+  root_dir: D:/Verification/VERIFICATION_PLANNER/Output/axi_stream_slave_vip_tb
+  work_dir: ./work
+  log_dir: ./logs
+  cov_dir: ./coverage
+compilation:
+  include_dirs:
+  - env
+  - sequences
+  - slave_agent
+  - top
+  defines:
+  - AXI_STREAM_SLAVE_VIP_INTERFACE_V1_0
+  - UVM_NO_DEPRECATED
+  sources:
+    interfaces:
+    - top/axi_stream_slave_vip_if.sv
+    packages:
+    - top/axi_stream_slave_vip_pkg.sv
+    modules:
+    - top/axi_stream_slave_vip_tb_top.sv
+    dut: []
+# Hooks run before/after the compile+elaborate job for this component only.
+# Leave blank to skip. Value is any shell command or path to a script.
+hooks:
+  pre:  ""
+  post: ""
+tool_settings:
+  vcs:
+    compile_flags:
+    - -sverilog
+    - -full64
+    - -debug_access+all
+    - -lca
+    - -kdb
+    - +v2k
+    elaborate_flags:
+    - -top ${project.top_module}
+    coverage_flags:
+    - -cm line+cond+fsm+tgl+path
+  questa:
+    compile_flags:
+    - -sv
+    - -mfcu
+    - -timescale
+    - 1ns/1ps
+    elaborate_flags:
+    - vopt +acc ${project.top_module} -o db_opt
+    coverage_flags:
+    - -coverage
+    notes: "Do NOT pass uvm_pkg.sv as source — use QuestaSim built-in UVM 1.1d (avoids DPI runtime GCC requirement)"
+

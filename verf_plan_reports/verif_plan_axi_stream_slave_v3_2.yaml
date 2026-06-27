@@ -1,0 +1,150 @@
+project: "AXI-Stream Slave Verification Plan"
+version: "3.2"
+dut_role: "Slave"
+protocol_version: "AXI5-Stream"
+configurations:
+  - feature: "Handshake & Stability"
+    name: "VALID/READY Flow Control"
+    impact: "Impacts the driver's ability to hold T-data stable and the scoreboard's expectation of handshake cycles."
+  - feature: "Interface Protection"
+    name: "AXI5 Parity (Odd)"
+    impact: "Requires parity generation in the agent and checkers in the scoreboard to detect TDATACHK errors."
+  - feature: "Data Streams"
+    name: "Sparse Streams (TKEEP/TSTRB)"
+    impact: "Impacts the data packing logic in the scoreboard and the driver's sequence item complexity."
+  - feature: "Packet Boundaries"
+    name: "TLAST Framing"
+    impact: "Defines the end-of-packet conditions for the monitor's packet assembly logic."
+  - feature: "Transfer Ordering"
+    name: "Continuous Packets"
+    impact: "Affects the back-pressure scenarios and throughput performance measurements."
+
+uvm_environment_diagram: |
+  graph TD
+      %% Layered Style Definitions
+      classDef test_layer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2;
+      classDef test_obj fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5,color:#7b1fa2;
+      classDef env_layer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0;
+      classDef env_obj fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,stroke-dasharray: 5 5,color:#1565c0;
+      classDef agent_layer fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c;
+      classDef agent_obj fill:#e0f2f1,stroke:#00695c,stroke-width:2px,stroke-dasharray: 5 5,color:#00695c;
+      classDef dut_layer fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17;
+  
+      subgraph UVM_Test_Layer [uvm_test]
+          direction TB
+          Test_Cfg[axi_test_config]:::test_obj
+          Seq[axi_sequence]:::test_obj
+          subgraph Env_Layer [uvm_env]
+              direction TB
+              Env_Cfg[axi_env_config]:::env_obj
+              Scoreboard[axi_scoreboard]:::env_layer
+              subgraph Agent_Layer [Master Agent]
+                  direction TB
+                  Agent_Cfg[axi_agent_config]:::agent_obj
+                  Sequencer[axi_sequencer]:::agent_layer
+                  Driver[axi_driver]:::agent_layer
+                  Monitor[axi_monitor]:::agent_layer
+                  Sequencer --> Driver
+              end
+          end
+      end
+  
+      Seq -->|starts on| Sequencer
+      subgraph Top_Level [Hardware Top]
+          VIF[Virtual Interface]:::interface
+          DUT[Design Under Test]:::interface
+          VIF <--> DUT
+      end
+  
+      Driver --- VIF
+      Monitor --- VIF
+      Monitor -- "Analysis Port" --> Scoreboard
+      class UVM_Test_Layer test_layer;
+      class Env_Layer env_layer;
+      class Agent_Layer agent_layer;
+      class Top_Level dut_layer;
+      class VIF,DUT dut_layer;
+
+test_requirements:
+  - id: "REQ_HANDSHAKE_STABILITY"
+    name: "VALID and READY Handshake Stability"
+    spec_ref: "Section 2.2, Page 2-18"
+    description: |
+      The Transmitter (Agent) must not wait for TREADY before asserting TVALID. Once TVALID is asserted, it must remain high until a handshake occurs.
+      Verification must ensure the Slave DUT correctly samples data only on the rising edge of ACLK where both VALID/READY are high. Failure leads to lost or duplicated data.
+  - id: "REQ_AXI5_PARITY"
+    name: "AXI5 Interface Parity Protection"
+    spec_ref: "Chapter 5, Page 5-44"
+    description: |
+      Odd parity checking is enforced for all signals. Each bit of the parity signal (TDATACHK) covers up to 8 bits of payload.
+      Verification intent is to inject parity errors and confirm the DUT correctly identifies the fault, preventing corrupted data propagation.
+  - id: "REQ_PACKET_BOUNDARY"
+    name: "TLAST Framing Rules"
+    spec_ref: "Section 2.6, Page 2-26"
+    description: |
+      TLAST must mark the final beat of a transfer. Verification must handle back-to-back packets and single-beat packets.
+      Ensures the DUT correctly flushes or terminates processing at packet boundaries.
+  - id: "REQ_SPARSE_STREAM"
+    name: "TKEEP and TSTRB Handling"
+    spec_ref: "Section 2.5, Page 2-24"
+    description: |
+      TKEEP (null-byte qualifier) and TSTRB (data-byte qualifier) define active bytes in each beat.
+      Verification must handle sparse streams with "holes" to ensure the DUT reconstructs the data correctly.
+
+test_cases:
+  - id: "TC_HANDSHAKE_SLAVE_WAIT"
+    scenario: "Slave (DUT) asserts TREADY first and waits for Master (Agent) to assert TVALID."
+    mapping: ["REQ_HANDSHAKE_STABILITY"]
+  - id: "TC_NULL_PACKET"
+    scenario: "Master sends a packet with TLAST=1 on the first beat and all TKEEP bits=0."
+    mapping: ["REQ_PACKET_BOUNDARY", "REQ_SPARSE_STREAM"]
+  - id: "TC_AXI5_PARITY_ERROR_INJECTION"
+    scenario: "Agent injects a single-bit flip on TDATACHK during an active transfer."
+    mapping: ["REQ_AXI5_PARITY"]
+  - id: "TC_BACK_TO_BACK_PACKETS"
+    scenario: "Continuous stream where TLAST=1 is followed immediately by TVALID=1 for the next packet."
+    mapping: ["REQ_PACKET_BOUNDARY"]
+  - id: "TC_RESET_DURING_TRANSFER"
+    scenario: "Assert ARESETn while TVALID/TREADY are high; verify state machines return to IDLE."
+    mapping: ["REQ_HANDSHAKE_STABILITY"]
+
+coverage_groups:
+  - name: "cg_handshake_scenarios"
+    description: "Cross of TVALID and TREADY transitions to cover all handshake timings."
+    mapping: ["REQ_HANDSHAKE_STABILITY"]
+  - name: "cg_packet_size"
+    description: "Bins for single-beat, medium-burst, and maximum-burst packet sizes."
+    mapping: ["REQ_PACKET_BOUNDARY"]
+  - name: "cg_sparse_keep_patterns"
+    description: "Walking 1s/0s and random toggle patterns on TKEEP/TSTRB signals."
+    mapping: ["REQ_SPARSE_STREAM"]
+
+interface_signals:
+  - name: "TVALID"
+    direction: "Slave Input"
+    width: "1"
+    description: "Indicates that the Transmitter is driving valid data."
+  - name: "TREADY"
+    direction: "Slave Output"
+    width: "1"
+    description: "Indicates that the Slave (DUT) can accept data."
+  - name: "TDATA"
+    direction: "Slave Input"
+    width: "DATA_WIDTH"
+    description: "Primary data payload."
+  - name: "TLAST"
+    direction: "Slave Input"
+    width: "1"
+    description: "Indicates the boundary of a packet."
+  - name: "TDATACHK"
+    direction: "Slave Input"
+    width: "DATA_WIDTH/8"
+    description: "AXI5 Parity check bits for TDATA."
+
+directory_structure:
+  root: "uvm_axi_stream_slave_tb/"
+  folders:
+    - agent: "Contains Master Agent (Sequencer, Driver, Monitor)"
+    - env: "Contains Scoreboard and Environment configuration"
+    - tests: "Contains UVM Test classes and sequence library"
+    - top: "Hardware top-level with VIF and DUT"

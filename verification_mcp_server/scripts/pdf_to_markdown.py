@@ -1,6 +1,8 @@
 import sys
 import os
 import argparse
+import json
+import argparse
 
 try:
     import fitz  # PyMuPDF
@@ -48,7 +50,7 @@ def extract_markdown_from_page(page, global_body_size=10.0, exclude_header_foote
     # 1. Extract tables
     table_rects = []
     try:
-        tables = page.find_tables()
+        tables = page.find_tables(strategy="lines_strict")
         if tables and tables.tables:
             for table in tables.tables:
                 table_rects.append(fitz.Rect(table.bbox))
@@ -208,49 +210,119 @@ def extract_context_to_md(pdf_path, keywords, output_md_path, context_words=30, 
         print(f"Error writing to {final_output_path}: {e}", file=sys.stderr)
         return None
 
-def convert_pdf_to_md(pdf_path, output_md_path, exclude_header_footer=False):
+def convert_pdf_to_md(
+    pdf_path,
+    output_md_path,
+    exclude_header_footer=False,
+    write_images=False,
+    embed_images=False,
+    image_format="png",
+    image_path="",
+    dpi=150,
+    table_strategy="lines_strict",
+    page_separators=True,
+    graphics_limit=None,
+    ignore_images=False,
+    ignore_graphics=False,
+    force_text=True,
+):
+    """
+    Converts a PDF to Markdown using pymupdf4llm.to_markdown() with full option support.
+
+    Args:
+        pdf_path            : path to the source PDF.
+        output_md_path      : destination .md file path.
+        exclude_header_footer: omit top/bottom 8% of each page (margin exclusion).
+        write_images        : save extracted images as files (requires image_path).
+        embed_images        : embed images inline as base64 (overrides write_images).
+        image_format        : image file format — 'png', 'jpeg', 'webp', etc.
+        image_path          : folder to save extracted images when write_images=True.
+        dpi                 : resolution for rasterised images (default 150).
+        table_strategy      : PyMuPDF table detection — 'lines_strict' (default),
+                              'lines', 'explicit', or 'text'.
+        page_separators     : insert '---' separators between pages in the output.
+        graphics_limit      : ignore all vector graphics if count exceeds this number.
+        ignore_images       : strip all raster images from output.
+        ignore_graphics     : strip all vector graphics from output.
+        force_text          : output text even when it sits on an image background.
+    """
     try:
         doc = fitz.open(pdf_path)
     except Exception as e:
         print(f"Failed to open PDF at {pdf_path}: {e}", file=sys.stderr)
         return None
-        
-    final_output_path = get_versioned_path(output_md_path)
-    try:
-        # Check if pymupdf4llm is available for far superior conversion
-        try:
-            import pymupdf4llm
-            print("pymupdf4llm detected. Using advanced layout analysis...", file=sys.stderr)
-            md_text = pymupdf4llm.to_markdown(pdf_path)
-            
-            os.makedirs(os.path.dirname(os.path.abspath(final_output_path)), exist_ok=True)
-            with open(final_output_path, "w", encoding="utf-8") as f:
-                f.write(md_text)
-                
-            print(f"Success! Complete PDF converted to markdown using pymupdf4llm at: {final_output_path}", file=sys.stderr)
-            return final_output_path
-        except ImportError:
-            print("pymupdf4llm not found. Falling back to heuristic PyMuPDF conversion.", file=sys.stderr)
 
-        os.makedirs(os.path.dirname(os.path.abspath(final_output_path)), exist_ok=True)
+    final_output_path = get_versioned_path(output_md_path)
+    os.makedirs(os.path.dirname(os.path.abspath(final_output_path)), exist_ok=True)
+
+    # ── Primary path: pymupdf4llm (full-featured) ─────────────────────────────
+    try:
+        import pymupdf4llm
+
+        # Build margin tuple for header/footer exclusion.
+        # 'margins' = (left, top, right, bottom) in points — 0.08 * 792pt ≈ 63pt
+        margins = (0, 63, 0, 63) if exclude_header_footer else 0
+
+        # Ensure image output folder exists when saving to disk
+        if write_images and image_path:
+            os.makedirs(image_path, exist_ok=True)
+
+        print(
+            f"pymupdf4llm {pymupdf4llm.__version__} detected. Converting with options: "
+            f"table_strategy={table_strategy}, write_images={write_images}, "
+            f"embed_images={embed_images}, image_format={image_format}, dpi={dpi}",
+            file=sys.stderr,
+        )
+
+        md_text = pymupdf4llm.to_markdown(
+            pdf_path,
+            write_images=write_images,
+            embed_images=embed_images,
+            ignore_images=ignore_images,
+            ignore_graphics=ignore_graphics,
+            image_path=image_path,
+            image_format=image_format,
+            dpi=dpi,
+            table_strategy=table_strategy,
+            page_separators=page_separators,
+            graphics_limit=graphics_limit,
+            force_text=force_text,
+            margins=margins,
+            show_progress=False,
+        )
+
+        with open(final_output_path, "w", encoding="utf-8") as f:
+            f.write(md_text)
+
+        print(f"Success! PDF converted via pymupdf4llm: {final_output_path}", file=sys.stderr)
+        return final_output_path
+
+    except ImportError:
+        print("pymupdf4llm not found. Falling back to heuristic PyMuPDF conversion.", file=sys.stderr)
+
+    # ── Fallback: heuristic extractor ─────────────────────────────────────────
+    try:
+        global_body_size = compute_global_body_size(doc)
         with open(final_output_path, "w", encoding="utf-8") as f:
             f.write(f"# Complete PDF Extraction\n\n")
             f.write(f"**Source PDF:** `{pdf_path}`\n\n")
-            
-            global_body_size = compute_global_body_size(doc)
-            
             for page_num in range(len(doc)):
                 page = doc[page_num]
                 text = extract_markdown_from_page(page, global_body_size, exclude_header_footer)
                 f.write(f"## Page {page_num + 1}\n\n")
                 f.write(text)
                 f.write("\n\n---\n\n")
-                
-        print(f"Success! Complete PDF converted to markdown at: {final_output_path}", file=sys.stderr)
+        print(f"Success! PDF converted via heuristic extractor: {final_output_path}", file=sys.stderr)
         return final_output_path
     except Exception as e:
-        print(f"Error writing to {final_output_path}: {e}", file=sys.stderr)
+        print(f"Error during PDF conversion: {e}", file=sys.stderr)
         return None
+
+# Hierarchical PDF extraction (Stage 1) has been moved to:
+# verification_mcp_server/scripts/vector_index.py
+# Import via server.py using: from vector_index import extract_hierarchical_pdf_to_json
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PDF to Markdown Converter/Extractor")
@@ -286,3 +358,8 @@ if __name__ == "__main__":
         output_md_path = os.path.join(markdown_dir, output_filename)
         print(f"Extracting contexts for '{keywords}'...", file=sys.stderr)
         extract_context_to_md(pdf_path, keywords, output_md_path, exclude_header_footer=args.exclude_hf)
+
+
+# Vector index build and query functionality has been moved to:
+# verification_mcp_server/scripts/vector_index.py
+# Import via server.py using: from vector_index import build_vector_index_from_json, query_vector_index

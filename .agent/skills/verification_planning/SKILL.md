@@ -19,19 +19,45 @@ description: Ultra-precise agentic protocol for generating enterprise-grade func
     - All functional configurations (Out-of-Order, Burst Types, Interleaving).
     - Optional sidebands and data integrity features.
 
-## 2. Iterative Information Extraction (The Data Loop)
-- **Deep Grep**: Search for "shall", "must", "illegal", "reserved","Transfer","Packet","Interleaving","Outstanding","Parity" and "Data Streams" "Aligned" "Unaligned" "Handshaking" "Wake Up" "ID" "Flow control" "Packing" "Unpacking" "Qualifiers" "Boundaries" "Clock" "Reset" "User Signaling" "Continuous packets" and "error".
-- **Refinement**: Use context windows (-C 50) to capture the "Why" behind a requirement.
-- **Spec Anchoring**: Every requirement MUST be anchored to a Section/Page/Paragraph.
+## 2. Iterative Information Extraction (Vector RAG Protocol)
 
-## 3. Configuration & High-Value Feature Matrix
-Systematically list and describe all supported configurations found in the spec using the following strict format:
-- **Formatting Rule**: The configuration `name` should be concise, meaningful, and consist of Delimiter-separated words (e.g. `OoO_Transactions`, `Interleaving_Variable_Depth`).
-- **Impact Description**: The `impact` field MUST NOT just describe the feature itself. Instead, strictly describe its **impact on terms of functionality, performance, and other verification constraints** (e.g. impact on scoreboard modeling, bandwidth limits, memory allocation). 
-- **Core Areas to cover**:
-    - **Out-of-Order & Burst Types**: Impact of tracking multi-beat transfers and reordering on the UVM architecture.
-    - **Handshaking & Protocol Scenarios**: Impact on pipeline stalling, throughput, and negative stimulus injection routing.
-    - **Data Integrity**: Impact of parity or ECC on error injection handlers.
+> [!IMPORTANT]
+> The **primary** extraction method is the **LlamaIndex Vector Index pipeline** from the `vector_index` skill. Raw grep is the **fallback** only when a vector DB is unavailable. Read `.agent/skills/vector_index/SKILL.md` before proceeding.
+
+### 2a. Pre-flight: Check / Build Vector Index
+1. Check if a vector DB exists for the target spec:
+   ```
+   find_by_name(SearchDirectory="d:\\Verification\\VERIFICATION_PLANNER\\vector_db", Pattern="<spec_name>")
+   ```
+2. **If NOT found** — run the full 3-stage pipeline:
+   - **Stage 1:** `extract_hierarchical_pdf` → `json/<spec_name>_kg.json`
+   - **Stage 2:** `build_vector_index` → `vector_db/<spec_name>/`
+3. **If found** — proceed directly to the **Recursive Discovery Protocol**.
+
+### 2b. The Recursive Discovery Protocol (Mandatory for High Density)
+3.  **The Density Contract**:
+    *   Minimum **10 Technical Requirements**.
+    *   Minimum **30 Test Cases**.
+    *   Failure to meet these thresholds is a "Low Fidelity" failure. Perform a "Pass 4 (Drill Down)" if thresholds are not met.
+
+4.  **Master Schema Protocol (MANDATORY & EXHAUSTIVE)**:
+    To ensure the PDF tool renders a complete engineering blueprint, you **MUST** include:
+    *   **EXHAUSTIVE ENUMERATION**: Do NOT use placeholders or comments like "(rest of cases maintained in memory)". Every one of the 30+ test cases **MUST** be physically written into the YAML file.
+    *   **Architecture Diagram**: Use `uvm_environment_diagram` with Mermaid syntax.
+    *   **Directory Structure**: Use `directory_structure` object.
+    *   **Implementation Pseudo-Code**: Use `code_snippets` list.
+    *   **Requirements**: Use `test_requirements` list.
+    *   **Test Cases**: Use `test_cases` list.
+
+1. **Pass 1: Scope Extraction**: Query the Table of Contents and Signal List. Identify every signal name and chapter title.
+2. **Pass 2: Functional Triangulation**: Query each signal identified in Pass 1 for its unique timing, handshake, and payload constraints.
+3. **Pass 3: Conformance Sweep**: Search for modal keywords (`shall`, `must`, `illegal`, `reserved`, `forbidden`). Every "Shall" statement found must map to at least one Test Requirement.
+
+> [!CAUTION]
+> **DENSITY CHECK**: If at the end of Pass 3 you have fewer than 10 Test Requirements, you MUST perform a **Pass 4** targeting optional protocol extensions (e.g., AXI5 sidebands, continuous streaming properties, power-up sequencing).
+
+### 2c. Spec Anchoring
+Every requirement MUST be anchored to a **Section/Page** from the RAG chunk metadata. Use the exact `spec_ref` provided in the retrieval results.
 
 ## 4. Total Traceability & Elaborative Modeling
 - **Test Requirements Formulation**:
@@ -47,6 +73,10 @@ Systematically list and describe all supported configurations found in the spec 
     - **Directed but Randomizable**: All test cases must be designed to test a highly specific aspect of the protocol (directed intent) while still utilizing constrained randomization (e.g., stall durations, packet sizes, variable interleaving depth) to hit edge boundaries.
     - **Control the VIP, Observe the DUT**: Test cases must be strictly defined by controlling verification component behaviors (e.g., configuring sequences, driver delays, protocol fault injections via the VIP). 
     - **Standard DUT Compliance**: Do NOT write test scenarios that expect the DUT to adopt a custom or altered behavior to pass. The DUT must be assumed to strictly adhere to the specification; the verification environment must generate the necessary corner cases to interact with standard DUT logic.
+    - **Role-Safe Signal Control (MANDATORY)**: 
+        *   **Ownership Check**: Every test case MUST respect the direction of the protocol signals. If the Verification Role is **Master**, the VIP **CANNOT** "drive," "hold," or "toggle" Slave-owned signals (e.g., `TREADY`). 
+        *   **Phrasing Requirement**: Test cases must be phrased as: "VIP drives [Role Signals], then **observes** or **waits for** [DUT Signals]." 
+        *   **Physical Validity**: Any test case that claims to control a signal owned by the DUT is a "Fatal Fidelity" failure.
 - **N:M:P Mapping & Traceability Constraints**: 
     - **Incremental Numeric IDs**: Test Requirement IDs and Test Case IDs MUST be purely incremental numeric sequences (e.g., `REQ_MST_01, REQ_MST_02`... and `TC_MST_001, TC_MST_002, TC_MST_003`...). Do NOT append alphabetic sub-indices (like `_A`, `_B`) to test cases just because they map to the same requirement. Maintain a strictly flat, incremental numbering scheme.
     - Test Case $\to$ Requirement.
@@ -73,13 +103,6 @@ project: "Title"
 version: "X.Y"
 verification_role: "Master | Slave"
 protocol_version: "e.g., AXI5-Stream"
-configurations:
-  - feature: "Out-of-Order"
-    name: "OoO_Transaction_Depth_Config"
-    impact: "Functionality impact involves expanding scoreboard reorder buffers. Performance impact allows for saturated bandwidth despite varied slave latency."
-  - feature: "Burst Type"
-    name: "Fixed_Incr_Wrap_Bursts"
-    impact: "Functional impact requires address-calculation checking logic. Performance impacts alignment logic penalties on wrapped boundaries."
 uvm_environment_diagram: |
   graph TD
     ...
@@ -111,12 +134,17 @@ directory_structure:
     - master_agent: "List EXACT filenames: e.g., <interface>_<role>_driver.sv, <interface>_<role>_monitor.sv, <interface>_<role>_agent_config.sv, <interface>_<role>_callback.sv"
     - env: "List EXACT filenames: e.g., <interface>_<role>_scoreboard.sv, <interface>_<role>_env_config.sv"
     - sequences: "List sequences matching the <interface>_<role> nomenclature: e.g., <interface>_<role>_base_sequence.sv, <interface>_<role>_seq_item.sv"
-    - top: "List the simulation top level files"
+    - top: "List the simulation top level files: e.g., <interface>_<role>_tb_top.sv, <interface>_<role>_test.sv, <interface>_<role>_defines.sv"
+code_snippets:
+  - title: "Filename.sv (Architecture Blueprint)"
+    code: |
+      [Structured blueprint defining COMPONENT, MEMBERS, and LOGIC mapping to sub-prompt rules]
 ```
 
 ## 7b. UVM Structural Constraints
-- **UVM Component Listing Rules**: Within the `directory_structure` property, YOU MUST explicitly list every UVM component required (driver, monitor, scoreboard, callback, configs for each component).
-- **Naming Standard**: Every component MUST be listed as an `.sv` file explicitly utilizing the naming schema: `<interface_name>_<role>_<component_type>.sv` (e.g., `axi_stream_master_driver.sv`, `axi_stream_master_scoreboard.sv`, `axi_stream_master_agent_config.sv`). Do not produce generic abstract descriptions; list the specific files.
+- **UVM Component Listing Rules**: Within the `directory_structure` property, YOU MUST explicitly list every UVM component required (driver, monitor, scoreboard, callback, configs for each component). **Placeholders like 'etc.' or '...' are forbidden.**
+- **Sequential Mapping**: Every file listed in the `directory_structure` MUST have a corresponding entry in the `code_snippets` section.
+- **Naming Standard**: Every component MUST be listed as an `.sv` file explicitly utilizing the naming schema: `<interface_name>_<role>_<component_type>.sv` (e.g., `axi_stream_master_driver.sv`, `axi_stream_master_scoreboard.sv`, `axi_stream_master_agent_config.sv`).
 
 ## 8. Professional PDF Reporting & Versioning
 - **Directory Rule**: All generated artifacts MUST be stored in the root directory `verf_plan_reports/`. This directory should be created if it does not exist.
@@ -124,7 +152,7 @@ directory_structure:
     - *YAML Path*: `verf_plan_reports/verif_plan_<protocol>_v<X_Y>.yaml`
     - *PDF Path*: `verf_plan_reports/<protocol>_verif_report_v<X_Y>.pdf`
 - **Rendering**: Invoke `convert_plan_to_pdf`.
-- **Sections**: Configurations, Traceability, Negative Scenarios, Performance, Interface Fidelity, and Architecture.
+- **Sections**: Traceability, Negative Scenarios, Performance, Interface Fidelity, and Architecture.
 
 ## 9. Protocol-Specific Reference (Sub-Prompts)
 - **Modular Expansion**: The agent **MUST** detect the target protocol and extract all respective sub-prompt cheat sheets for architecture mapping:
@@ -132,6 +160,7 @@ directory_structure:
   - If AMBA AXI Memory Mapped (AXI3, AXI4, AXI5): Read `sub_prompts/axi_mm_cheat_sheet.md`
   - If AMBA APB (APB3, APB4, APB5): Read `sub_prompts/apb_cheat_sheet.md`
   - If AMBA AHB (AHB3, AHB4, AHB5): Read `sub_prompts/ahb_cheat_sheet.md`
+- **Universal Code Generation**: Regardless of protocol, the agent **MUST** read and enforce the pseudo-code logic outlined in `sub_prompts/uvm_pseudo_code_generation.md`.
 - **Exhaustive Mapping**: Ensure that all corner cases and negative scenarios listed in the sub-prompt are mapped to at least one test case and coverage group in the final YAML plan.
 
 ## 10. Output Quality & Engineering Tone

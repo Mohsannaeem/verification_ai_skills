@@ -1,0 +1,324 @@
+project: AXI-Stream Master Verification IP
+version: '20.0'
+verification_role: Master
+protocol_version: AXI5-Stream
+uvm_environment_diagram: "graph TD\n    classDef tl fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#7b1fa2\n\
+  \    classDef to fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray:5\
+  \ 5,color:#7b1fa2\n    classDef el fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1565c0\n\
+  \    classDef al fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#00695c\n  \
+  \  classDef dl fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#f57f17\n    subgraph\
+  \ UVM_Test_Layer[uvm_test]\n        TC[axi_stream_master_test_config]:::to\n   \
+  \     SI[axi_stream_master_seq_item]:::to\n        SQ[axi_stream_master_base_sequence]:::to\n\
+  \        subgraph Env_Layer[uvm_env]\n            SB[axi_stream_master_scoreboard]:::el\n\
+  \            EC[axi_stream_master_env_config]:::el\n            subgraph Agent_Layer[Master\
+  \ Agent]\n                SEQ[axi_stream_master_sequencer]:::al\n              \
+  \  AC[axi_stream_master_agent_config]:::al\n                DRV[axi_stream_master_driver]:::al\n\
+  \                MON[axi_stream_master_monitor]:::al\n                CB[axi_stream_master_callback]:::al\n\
+  \                SEQ --> DRV\n                CB --> DRV\n                AC -->\
+  \ SEQ\n            end\n            EC --> SB\n        end\n        TC --> SQ\n\
+  \        SI --> SQ\n    end\n    SQ --> SEQ\n    subgraph Top_Level[Hardware Top]\n\
+  \        VIF[Virtual Interface]:::dl\n        DUT[DUT Slave Receiver]:::dl\n   \
+  \     VIF <--> DUT\n    end\n    DRV --- VIF\n    MON --- VIF\n    MON --> SB\n\
+  \    class UVM_Test_Layer tl\n    class Env_Layer el\n    class Agent_Layer al\n\
+  \    class Top_Level dl"
+test_requirements:
+- id: REQ_MST_01
+  feature: Handshake
+  sub_feature: TVALID Stability
+  name: Continuous TVALID Post-Assertion
+  spec_ref: Section 2.2, Page 18
+  description: 'Hardware Logic: The valid data bytes and control information from
+    the Transmitter must remain unchanged once TVALID has been asserted. The Transmitter
+    is not permitted to wait until TREADY is asserted before asserting TVALID. Premature
+    dropping of TVALID or changing data creates race conditions at the receiver boundaries.
+
+
+    Functional constraint guarantees TVALID remains HIGH and TDATA/TSTRB/TKEEP/TID/TDEST/TLAST
+    are completely locked until TREADY is sampled HIGH. Negative scenarios will explicitly
+    attempt to force invalid transitions to test VIP monitor error detection.'
+- id: REQ_MST_02
+  feature: Handshake
+  sub_feature: TREADY Delay
+  name: Receiver Delay Handling
+  spec_ref: Section 2.2, Page 18
+  description: 'Hardware Logic: A Receiver is permitted to wait for TVALID to be asserted
+    before asserting TREADY. The DUT Slave might insert arbitrary wait states, or
+    single-cycle completions.
+
+
+    Generate variable delays from the Master VIP. Since the VIP is Master, it doesn''t
+    control TREADY directly, but the agent''s reactive sequence must verify that the
+    DUT accepts back-to-back zero-delay bursts and max-wait-state bursts without packet
+    loss.'
+- id: REQ_MST_03
+  feature: Data Routing
+  sub_feature: Stream Interleaving
+  name: TID/TDEST Integrity
+  spec_ref: Section 2.7, Page 27
+  description: 'Hardware Logic: Transfers that have the same TID and TDEST values
+    are from the same stream. Interleaving of transfers in different streams is permitted
+    on a per transfer basis and is not limited to TLAST boundaries.
+
+
+    VIP will generate heavily interleaved traffic across multiple TID streams. Constraint
+    verification to guarantee no mixed packets unless IDs differ. Performance profiling
+    of structural throughput under 100% interleaving.'
+- id: REQ_MST_04
+  feature: Data Packing
+  sub_feature: Null & Position Bytes
+  name: TKEEP and TSTRB Rules
+  spec_ref: Section 2.4, Page 21
+  description: 'Hardware Logic: TKEEP HIGH indicates payload transport. TSTRB HIGH
+    indicates a data byte, LOW indicates a position byte. A null byte has TKEEP LOW.
+    The DUT must correctly extract data and drop null bytes.
+
+
+    Generate completely randomized TKEEP and TSTRB arrays, creating continuous aligned,
+    continuous unaligned, and sparse streams. Negative constraint: TSTRB HIGH while
+    TKEEP LOW is an explicit violation and must trigger an error.'
+- id: REQ_MST_05
+  feature: Data Packing
+  sub_feature: Packet Boundaries
+  name: TLAST Framing
+  spec_ref: Section 2.6, Page 26
+  description: 'Hardware Logic: TLAST indicates the boundary of a packet. A packet
+    can be 1 beat or deeply fragmented. A transfer can have TLAST asserted but contain
+    zero data bytes to push buffers.
+
+
+    Verify the DUT handles 1-beat packets, max-legnth packets, and null-termination
+    packets (TLAST=1, all TKEEP=0). Check DUT sideband routing to ensure entire frame
+    alignment.'
+- id: REQ_MST_06
+  feature: Reset
+  sub_feature: Mid-Transfer Reset
+  name: Asynchronous Reset Recovery
+  spec_ref: Section 2.8, Page 28
+  description: 'Hardware Logic: ARESETn is active-LOW. During reset, TVALID must be
+    driven LOW. All other signals can be driven to any value. Reset can happen asynchronously.
+
+
+    Sequence will inject ARESETn midway through an interleaved packet burst. Verify
+    all VIP components flush sequence queues, drop pending transactions, and resume
+    gracefully post-reset without protocol deadlocks.'
+- id: REQ_MST_07
+  feature: AXI5
+  sub_feature: Wake-up Signaling
+  name: TWAKEUP Assertion Latency
+  spec_ref: Section 2.3, Page 20
+  description: 'Hardware Logic: TWAKEUP indicates activity. It must be driven before
+    or with TVALID. If driven on the same cycle, TWAKEUP must remain asserted until
+    TREADY.
+
+
+    Constrain Master sequence to assert TWAKEUP randomly between 1 and 20 cycles before
+    TVALID. Assert both on the exact same cycle. Drop TWAKEUP synchronously after
+    packet completion.'
+- id: REQ_MST_08
+  feature: AXI5
+  sub_feature: Parity Protection
+  name: Odd Parity Verification
+  spec_ref: Section 5, Page 43
+  description: 'Hardware Logic: Error detection operates using odd parity signals
+    (TVALIDCHK, TDATACHK, etc). Each parity bit covers maximum 8 payload bits. Receiver
+    must terminate, correct, or propagate the error.
+
+
+    Generate deterministic odd parity on the Master VIP for all signals. Negative
+    scenarios: inject single-bit flips on TDATACHK and TLASTCHK independently to verify
+    DUT Slave flags the error or drops the packet.'
+test_cases:
+- id: TC_MST_001
+  scenario: Basic single-cycle handshake transfer with full TKEEP and no interleaving.
+  mapping:
+  - REQ_MST_01
+  - REQ_MST_02
+- id: TC_MST_002
+  scenario: Back-to-back zero-delay packet bursting.
+  mapping:
+  - REQ_MST_01
+  - REQ_MST_02
+  - REQ_MST_05
+- id: TC_MST_003
+  scenario: Force TVALID drop before TREADY assertion (Negative Test) to test VIP
+    protocol monitor bounds.
+  mapping:
+  - REQ_MST_01
+- id: TC_MST_004
+  scenario: Heavy stream interleaving (4 unique TIDs) changing on a per-beat boundary.
+  mapping:
+  - REQ_MST_03
+- id: TC_MST_005
+  scenario: Sparse stream generation. Randomized TKEEP with mixed TSTRB mapping position
+    bytes.
+  mapping:
+  - REQ_MST_04
+- id: TC_MST_006
+  scenario: Illegal Byte Qualifier (Negative Test). Generate TSTRB=1 while TKEEP=0
+    on random byte lanes.
+  mapping:
+  - REQ_MST_04
+- id: TC_MST_007
+  scenario: Null packet termination. Send TLAST=1 with all TKEEP=0.
+  mapping:
+  - REQ_MST_05
+- id: TC_MST_008
+  scenario: Asynchronous reset mid-transfer. Assert ARESETn while TVALID=1 and TREADY=0.
+  mapping:
+  - REQ_MST_06
+- id: TC_MST_009
+  scenario: Assert TWAKEUP exactly 1 cycle before TVALID for an entire multi-beat
+    packet.
+  mapping:
+  - REQ_MST_07
+- id: TC_MST_010
+  scenario: Parity injection (Negative Test). Flip bit 0 of TDATACHK to create even
+    parity.
+  mapping:
+  - REQ_MST_08
+- id: TC_MST_011
+  scenario: Parity corruption on control signals. Flip TLASTCHK during packet boundary.
+  mapping:
+  - REQ_MST_08
+- id: TC_MST_012
+  scenario: Maximum latency TREADY acceptance. DUT inserts 50 wait cycles dynamically.
+  mapping:
+  - REQ_MST_02
+coverage_groups:
+- name: cg_axi_handshake
+  description: Coverage over TVALID/TREADY timing dependencies and delays.
+  mapping:
+  - REQ_MST_01
+  - REQ_MST_02
+- name: cg_axi_packet_boundaries
+  description: Cross coverage of TLAST with TDATA sizes and TKEEP sparsity.
+  mapping:
+  - REQ_MST_04
+  - REQ_MST_05
+- name: cg_axi_interleaving
+  description: Number of concurrent TIDs active and interleaved beat frequencies.
+  mapping:
+  - REQ_MST_03
+- name: cg_axi5_wakeup
+  description: Timing delta between TWAKEUP assertion and TVALID.
+  mapping:
+  - REQ_MST_07
+- name: cg_axi5_parity
+  description: Tracking error injections across all supported Check_Type signals.
+  mapping:
+  - REQ_MST_08
+interface_signals:
+- name: ACLK
+  direction: Input
+  width: '1'
+  description: Global clock signal.
+- name: ARESETn
+  direction: Input
+  width: '1'
+  description: Global active-LOW reset.
+- name: TVALID
+  direction: Output
+  width: '1'
+  description: Master indicates valid payload.
+- name: TREADY
+  direction: Input
+  width: '1'
+  description: Slave indicates readiness to accept.
+- name: TDATA
+  direction: Output
+  width: DATA_WIDTH
+  description: Primary payload. Parametrized (multiple of 8).
+- name: TSTRB
+  direction: Output
+  width: DATA_WIDTH/8
+  description: Data byte/Position byte qualifier.
+- name: TKEEP
+  direction: Output
+  width: DATA_WIDTH/8
+  description: Payload validity byte qualifier (null byte removal).
+- name: TLAST
+  direction: Output
+  width: '1'
+  description: Packet boundary demarcation.
+- name: TID
+  direction: Output
+  width: TID_WIDTH
+  description: Stream identifier for interleaving.
+- name: TDEST
+  direction: Output
+  width: TDEST_WIDTH
+  description: Target destination routing descriptor.
+- name: TUSER
+  direction: Output
+  width: TUSER_WIDTH
+  description: Sideband user-defined signaling.
+- name: TWAKEUP
+  direction: Output
+  width: '1'
+  description: (AXI5) Wake-up indicator crossing clock domains.
+- name: TVALIDCHK
+  direction: Output
+  width: '1'
+  description: (AXI5) Odd parity check for TVALID.
+- name: TREADYCHK
+  direction: Input
+  width: '1'
+  description: (AXI5) Odd parity check for TREADY.
+- name: TDATACHK
+  direction: Output
+  width: DATA_WIDTH/8
+  description: (AXI5) Odd parity mapped 1-bit per byte of TDATA.
+- name: TSTRBCHK
+  direction: Output
+  width: ceil(DATA_WIDTH/64)
+  description: (AXI5) Odd parity for TSTRB.
+- name: TKEEPCHK
+  direction: Output
+  width: ceil(DATA_WIDTH/64)
+  description: (AXI5) Odd parity for TKEEP.
+- name: TLASTCHK
+  direction: Output
+  width: '1'
+  description: (AXI5) Odd parity for TLAST.
+- name: TWAKEUPCHK
+  direction: Output
+  width: '1'
+  description: (AXI5) Odd parity for TWAKEUP.
+directory_structure:
+  root: axi_stream_master_vip_tb/
+  folders:
+  - master_agent:
+    - axi_stream_master_driver.sv
+    - axi_stream_master_monitor.sv
+    - axi_stream_master_sequencer.sv
+    - axi_stream_master_agent_config.sv
+    - axi_stream_master_callback.sv
+    - axi_stream_master_agent.sv
+  - env:
+    - axi_stream_master_scoreboard.sv
+    - axi_stream_master_env_config.sv
+    - axi_stream_master_env.sv
+  - sequences:
+    - axi_stream_master_base_sequence.sv
+    - axi_stream_master_seq_item.sv
+  - top:
+    - axi_stream_master_tb_top.sv
+    - axi_stream_master_test.sv
+    - axi_stream_master_defines.sv
+code_snippets:
+- title: axi_stream_master_seq_item.sv (Architecture Blueprint)
+  code: "COMPONENT: axi_stream_master_seq_item\nEXTENDS: uvm_sequence_item\nMEMBERS:\n\
+    \  - rand bit [DATA_WIDTH-1:0] TDATA\n  - rand bit [(DATA_WIDTH/8)-1:0] TSTRB\n\
+    \  - rand bit [(DATA_WIDTH/8)-1:0] TKEEP\n  - rand bit TLAST\n  - rand bit [TID_WIDTH-1:0]\
+    \ TID\n  - rand bit [TDEST_WIDTH-1:0] TDEST\n  - rand bit [TUSER_WIDTH-1:0] TUSER\n\
+    \  - rand bit TWAKEUP\n  - rand int unsigned delay_cycles\nMETHODS & LOGIC:\n\
+    \  - constraints: [delay_cycles within 0..15, TSTRB must be 0 where TKEEP is 0]"
+- title: axi_stream_master_driver.sv (Architecture Blueprint)
+  code: "COMPONENT: axi_stream_master_driver\nEXTENDS: uvm_driver #(axi_stream_master_seq_item)\n\
+    CONFIG_REF: axi_stream_master_agent_config\nMEMBERS:\n  - virtual axi_stream_vif\
+    \ vif\nMETHODS & LOGIC:\n  - build_phase: [Retrieve agent config and assign virtual\
+    \ interface]\n  - run_phase: [\n      Wait for reset release;\n      Loop forever:\
+    \ get_next_item, drive TWAKEUP if configured,\n      wait delay_cycles,\n    \
+    \  drive TDATA, TKEEP, TSTRB, TLAST, TID, TDEST, TUSER;\n      calculate and drive\
+    \ odd parity explicitly;\n      assert TVALID;\n      wait until TREADY is sampled\
+    \ HIGH;\n      drop TVALID or process next item;\n      item_done();\n    ]"

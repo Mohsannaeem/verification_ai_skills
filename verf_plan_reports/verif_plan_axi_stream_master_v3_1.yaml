@@ -1,0 +1,98 @@
+# ==============================================================================
+# AMBA AXI-Stream Protocol Verification Plan (Master VIP Role)
+# Version: 3.1 (Role-Safe Mastery - Fresh Start)
+# ==============================================================================
+
+project: "AXI-Stream Role-Safe Verification"
+version: "3.1"
+verification_role: "Master"
+protocol_version: "AXI5-Stream"
+
+uvm_environment_diagram: |
+  graph TD
+    subgraph "UVM Master Environment"
+      Agent["axis_master_agent"]
+      Drv["axis_master_driver"]
+      Mon["axis_master_monitor"]
+      Sbd["axis_master_scoreboard"]
+      Agent --> Drv
+      Agent --> Mon
+      Mon --> Sbd
+    end
+    Drv -->|"TDATA, TVALID, TLAST (Output)"| DUT["Slave DUT"]
+    DUT -->|"TREADY (Input)"| Mon
+    DUT -->|"TREADY (Input)"| Drv
+
+directory_structure:
+  root: "verif/axis_role_safe_v3_1/"
+  folders:
+    - agent: "axis_master_driver.sv, axis_master_monitor.sv, axis_master_agent.sv, axis_if.sv"
+    - env: "axis_env.sv, axis_scoreboard.sv"
+
+code_snippets:
+  - title: "Master Driver: Handshake Protocol"
+    code: |
+      task axis_master_driver::drive_transfer(axis_tx tr);
+        vif.TVALID <= 1'b1;
+        vif.TDATA  <= tr.data;
+        vif.TLAST  <= tr.last;
+        // Wait for Slave DUT to respond with TREADY
+        do begin
+          @(posedge vif.ACLK);
+        end while (vif.TREADY !== 1'b1);
+        vif.TVALID <= 1'b0;
+      endtask
+
+test_requirements:
+  - {id: "REQ_MS_01", feature: "Handshake", sub_feature: "Stability", name: "Master Data Stability", description: "While TVALID is HIGH and TREADY (from DUT) is observed to be LOW, the Master VIP MUST keep TDATA and all sidebands stable."}
+  - {id: "REQ_MS_02", feature: "Handshake", sub_feature: "Independence", name: "TVALID/TREADY Independence", description: "Master VIP MUST NOT wait for TREADY assertion before asserting TVALID."}
+  - {id: "REQ_MS_03", feature: "Reset", sub_feature: "Suppression", name: "Reset TVALID LOW", description: "Master VIP MUST drive TVALID LOW during reset. TREADY (Input) is ignored per protocol."}
+  - {id: "REQ_MS_04", feature: "Packet", sub_feature: "TLAST", name: "End-of-Packet Marker", description: "Master VIP MUST drive TLAST HIGH to indicate the final beat of a packet."}
+  - {id: "REQ_MS_05", feature: "Packet", sub_feature: "Consistency", name: "ID/DEST Integrity", description: "Master VIP MUST hold TID and TDEST constant while TLAST is LOW in an active transfer."}
+  - {id: "REQ_MS_06", feature: "Monitoring", sub_feature: "Slave Compliance", name: "Slave Ready Monitoring", description: "Master VIP Monitor SHALL verify that Slave DUT drives TREADY to a valid logic level (no X-states)."}
+
+test_cases:
+  # --- ROLE-SAFE HANDSHAKE ---
+  - id: "TC_MS_01"
+    scenario: "Valid-Wait-Ready: Master VIP asserts TVALID=1. Slave DUT is observed holding TREADY=0. Verify Master VIP keeps TDATA stable for 10 cycles."
+    mapping: ["REQ_MS_01"]
+  - id: "TC_MS_02"
+    scenario: "Instant Handshake: Master VIP asserts TVALID=1. Slave DUT is observed already at TREADY=1. Verify transfer completes in a single cycle."
+    mapping: ["REQ_MS_02"]
+  - id: "TC_MS_03"
+    scenario: "Back-Pressure Stress: Master VIP drives a 100-beat burst. Slave DUT is observed to toggle TREADY randomly. Verify zero data loss."
+    mapping: ["REQ_MS_01", "REQ_MS_06"]
+  - id: "TC_MS_04"
+    scenario: "Reset Suppression: Verify Master VIP drives TVALID=0 while ARESETn is LOW, even if Slave DUT drives TREADY=1."
+    mapping: ["REQ_MS_03"]
+  
+  # --- PACKET INTEGRITY ---
+  - id: "TC_MS_05"
+    scenario: "TID Stability Check: Master VIP drives a packet. Monitor observes TREADY stall cycle 3. Verify Master VIP TID remains frozen."
+    mapping: ["REQ_MS_05"]
+  - id: "TC_MS_06"
+    scenario: "Single-Beat Packet: Master VIP drives TLAST=1 and TVALID=1 simultaneously. Waits for Slave DUT TREADY."
+    mapping: ["REQ_MS_04"]
+  - id: "TC_MS_07"
+    scenario: "ZBT Packet: Master VIP drives TLAST=1 with all TKEEP=0. Observe Slave DUT handshake."
+    mapping: ["REQ_MS_04"]
+
+  # --- MONITORING (SLAVE RESPONSIBILITY) ---
+  - id: "TC_MS_08"
+    scenario: "Slave Readiness Observation: Sequence drives multi-beat. Monitor verifies Slave DUT eventually asserts TREADY (Liveness check)."
+    mapping: ["REQ_MS_06"]
+  - id: "TC_MS_09"
+    scenario: "Slave Stall Analysis: Master VIP drives 10 packets. Monitor logs performance metric based on Slave DUT's TREADY latency."
+    mapping: ["REQ_MS_06"]
+
+interface_signals:
+  - {name: "TDATA", direction: "Output", width: "TD_W", description: "Data payload from Master."}
+  - {name: "TVALID", direction: "Output", width: 1, description: "Valid from Master."}
+  - {name: "TREADY", direction: "Input", width: 1, description: "Ready from Slave DUT (Observed by Master)."}
+  - {name: "TLAST", direction: "Output", width: 1, description: "End of packet from Master."}
+  - {name: "ACLK", direction: "Input", width: 1, description: "Global clock."}
+  - {name: "ARESETn", direction: "Input", width: 1, description: "Global reset."}
+
+coverage_groups:
+  - {name: "cg_master_handshake", description: "Cross of Master TVALID x Observed Slave TREADY."}
+  - {name: "cg_packet_boundary", description: "TLAST transitions during Master-led burst."}

@@ -1,0 +1,122 @@
+# EDA Buddy Runtime Config (Auto-Generated)
+runtime:
+  common_args:
+  - +UVM_VERBOSITY=UVM_MEDIUM
+  - +UVM_MAX_QUIT_COUNT=10
+  - +UVM_TIMEOUT=100000000
+  tool_args:
+    vcs:
+    - -l simv.log
+    questa:
+    - -batch
+    - -do 'run -all; quit'
+  debug:
+    gui_mode: false
+    dump_waves: true
+    wave_format: fsdb
+    quiet_sim: true
+test_config:
+  active_test: axi_stream_slv_vip_tc_001_test
+  entry_points:
+  - {name: axi_stream_slv_vip_tc_001_test, description: 'Zero-stall max throughput', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_002_test, description: 'Fixed 8-cycle stall', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_003_test, description: 'Random duty-cycle back-pressure', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_004_test, description: 'TREADY pre-assertion', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_005_test, description: '32-cycle stall stability', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_006_test, description: 'TVALID glitch cycle-8 (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_007_test, description: 'TVALID glitch cycle-2 (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_008_test, description: 'Post-handshake TVALID deassertion', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_009_test, description: 'TDATA mutation detect (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_010_test, description: 'Full payload stability 32-cycle', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_011_test, description: 'Payload stability with parity cross-verify', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_012_test, description: 'Single-beat packet', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_013_test, description: '64-beat packet random back-pressure', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_014_test, description: 'Back-to-back packets zero idle', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_015_test, description: '10-packet TLAST count audit', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_016_test, description: 'TVALID during reset (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_017_test, description: 'Post-reset min latency 1 cycle', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_018_test, description: 'Post-reset extended idle 8 cycles', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_019_test, description: 'Mid-transfer reset injection', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_020_test, description: 'Reset at handshake coincidence', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_021_test, description: 'All-data byte lanes TKEEP/TSTRB=1111', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_022_test, description: 'Sparse null-byte stream', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_023_test, description: 'Single active byte LSB lane', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_024_test, description: 'Reserved TKEEP/TSTRB (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_025_test, description: 'TWAKEUP 2 cycles before TVALID', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_026_test, description: 'TWAKEUP simultaneous + 6-cycle stall', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_027_test, description: 'TWAKEUP without transfer', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_028_test, description: 'TWAKEUP early deassertion (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_029_test, description: 'Dual-stream interleaving TID=0/1', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_030_test, description: 'Four-stream interleaving TID=0/1/2/3', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_031_test, description: 'Stream switch at TLAST boundary', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_032_test, description: 'Mid-packet TID change (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_033_test, description: 'Isolated null packet', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_034_test, description: 'Back-to-back null packets', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_035_test, description: 'Null packet following non-null', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_036_test, description: 'Null packet preceding non-null', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_037_test, description: 'AXI5 parity nominal 1000 beats', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_038_test, description: 'TDATACHK fault injection (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_039_test, description: 'TREADYCHK generation 500 events', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_040_test, description: 'Null byte lane parity coverage', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_041_test, description: 'Back-pressure on first beat', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_042_test, description: 'Back-pressure on TLAST beat', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_043_test, description: 'Alternating back-pressure 256-beat packet', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_044_test, description: 'Continuous_Packets nominal 8 pkts', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_045_test, description: 'Continuous_Packets TID violation (negative)', seed: random, user_args: []}
+  - {name: axi_stream_slv_vip_tc_046_test, description: 'Continuous_Packets null byte (negative)', seed: random, user_args: []}
+# Hooks run before/after each simulation for this component only.
+# Leave blank to skip. Value is any shell command or path to a script.
+hooks:
+  pre:  ""
+  post: ""
+# Each group can have its own regression_post_hook.
+# Placeholders {total}, {passed}, {failed} are substituted with actual results.
+groups:
+  smoke_test:
+    regression_post_hook: "python /cygdrive/d/Verification/VERIFICATION_PLANNER/eda_buddy/scripts/push_result.py --id AXI_SLAVE_SMOKE_REGRESSION --total {total} --passed {passed} --failed {failed}"
+    tests:
+    - axi_stream_slv_vip_tc_001_test
+    - axi_stream_slv_vip_tc_002_test
+    - axi_stream_slv_vip_tc_012_test
+    - axi_stream_slv_vip_tc_017_test
+    - axi_stream_slv_vip_tc_021_test
+    - axi_stream_slv_vip_tc_033_test
+    - axi_stream_slv_vip_tc_037_test
+  regression:
+    regression_post_hook: "python /cygdrive/d/Verification/VERIFICATION_PLANNER/eda_buddy/scripts/push_result.py --id AXI_SLAVE_FULL_REGRESSION --total {total} --passed {passed} --failed {failed}"
+    tests:
+    - axi_stream_slv_vip_tc_001_test
+    - axi_stream_slv_vip_tc_002_test
+    - axi_stream_slv_vip_tc_003_test
+    - axi_stream_slv_vip_tc_004_test
+    - axi_stream_slv_vip_tc_005_test
+    - axi_stream_slv_vip_tc_008_test
+    - axi_stream_slv_vip_tc_010_test
+    - axi_stream_slv_vip_tc_011_test
+    - axi_stream_slv_vip_tc_012_test
+    - axi_stream_slv_vip_tc_013_test
+    - axi_stream_slv_vip_tc_014_test
+    - axi_stream_slv_vip_tc_015_test
+    - axi_stream_slv_vip_tc_017_test
+    - axi_stream_slv_vip_tc_018_test
+    - axi_stream_slv_vip_tc_019_test
+    - axi_stream_slv_vip_tc_021_test
+    - axi_stream_slv_vip_tc_022_test
+    - axi_stream_slv_vip_tc_023_test
+    - axi_stream_slv_vip_tc_025_test
+    - axi_stream_slv_vip_tc_026_test
+    - axi_stream_slv_vip_tc_027_test
+    - axi_stream_slv_vip_tc_029_test
+    - axi_stream_slv_vip_tc_030_test
+    - axi_stream_slv_vip_tc_031_test
+    - axi_stream_slv_vip_tc_033_test
+    - axi_stream_slv_vip_tc_034_test
+    - axi_stream_slv_vip_tc_035_test
+    - axi_stream_slv_vip_tc_036_test
+    - axi_stream_slv_vip_tc_037_test
+    - axi_stream_slv_vip_tc_039_test
+    - axi_stream_slv_vip_tc_040_test
+    - axi_stream_slv_vip_tc_041_test
+    - axi_stream_slv_vip_tc_042_test
+    - axi_stream_slv_vip_tc_043_test
+    - axi_stream_slv_vip_tc_044_test
