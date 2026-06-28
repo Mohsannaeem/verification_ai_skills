@@ -6,6 +6,6 @@
 	path = dummy_uvm
 	url = git@github.com:Mohsannaeem/dummy_uvm.git
 	branch = master
-[submodule "uvc/axi_stream_uvc"]
-	path = uvc/axi_stream_uvc
+[submodule "Output"]
+	path = Output
 	url = git@github.com:Mohsannaeem/axi_stream_uvc.git

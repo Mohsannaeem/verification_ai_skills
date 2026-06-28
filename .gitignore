@@ -17,8 +17,6 @@ vector_db/
 # Simulation run outputs
 run/
 
-# Generated VIP testbench output
-Output/
 
 # QuestaSim / VCS compiled library artifacts
 *.qdb
