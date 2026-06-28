@@ -119,11 +119,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
         run: |
-          # Check if a dev branch exists; skip gracefully if not.
-          DEV_EXISTS=$(gh api repos/Mohsannaeem/axi_stream_uvc/branches/dev \
-            --jq '.name' 2>/dev/null || echo "")
+          # Check if a dev branch exists; use list API (never 404s) instead of
+          # the single-branch endpoint which exits 1 when the branch is absent.
+          DEV_EXISTS=$(gh api repos/Mohsannaeem/axi_stream_uvc/branches \
+            --jq '[.[] | select(.name=="dev")] | length')
 
-          if [ -z "$DEV_EXISTS" ]; then
+          if [ "$DEV_EXISTS" = "0" ]; then
             echo "No dev branch in axi_stream_uvc — skipping."
             exit 0
           fi
