@@ -1,7 +1,8 @@
 name: Sub-Repo Pull Requests
 
-# Creates PRs from dev → main on each standalone sub-repo when dev has new commits.
-# If a PR already exists it is left open (new commits auto-appear on it).
+# Creates PRs from dev → main (or dev → master) on each sub-repo when
+# dev has new commits. If a PR already exists it is left open.
+# Skips gracefully when a sub-repo has no dev branch.
 #
 # Triggers:
 #   - Daily at 19:00 UTC (midnight Pakistan Standard Time)
@@ -33,7 +34,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
         run: |
-          AHEAD=$(gh api repos/Mohsannaeem/eda_buddy/compare/main...dev --jq '.ahead_by')
+          DEV_EXISTS=$(gh api repos/Mohsannaeem/eda_buddy/branches \
+            --jq '[.[] | select(.name=="dev")] | length')
+
+          if [ "$DEV_EXISTS" = "0" ]; then
+            echo "No dev branch in eda_buddy — skipping."
+            exit 0
+          fi
+
+          AHEAD=$(gh api repos/Mohsannaeem/eda_buddy/compare/main...dev \
+            --jq '.ahead_by')
           echo "eda_buddy: dev is ${AHEAD} commit(s) ahead of main"
 
           if [ "$AHEAD" = "0" ]; then
@@ -79,7 +89,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
         run: |
-          AHEAD=$(gh api repos/Mohsannaeem/dummy_uvm/compare/master...dev --jq '.ahead_by')
+          DEV_EXISTS=$(gh api repos/Mohsannaeem/dummy_uvm/branches \
+            --jq '[.[] | select(.name=="dev")] | length')
+
+          if [ "$DEV_EXISTS" = "0" ]; then
+            echo "No dev branch in dummy_uvm — skipping."
+            exit 0
+          fi
+
+          AHEAD=$(gh api repos/Mohsannaeem/dummy_uvm/compare/master...dev \
+            --jq '.ahead_by')
           echo "dummy_uvm: dev is ${AHEAD} commit(s) ahead of master"
 
           if [ "$AHEAD" = "0" ]; then
@@ -105,7 +124,11 @@ jobs:
           | | |
           |---|---|
           | Triggered by | ${{ github.event_name }} |
-          | Created at   | $(date -u +'%Y-%m-%d %H:%M UTC') |" \
+          | Created at   | $(date -u +'%Y-%m-%d %H:%M UTC') |
+
+          ### Checklist
+          - [ ] UVM templates compile cleanly
+          - [ ] No machine-specific paths in template files" \
               --base master \
               --head dev
           fi
@@ -119,8 +142,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.EDA_BUDDY_PAT }}
         run: |
-          # Check if a dev branch exists; use list API (never 404s) instead of
-          # the single-branch endpoint which exits 1 when the branch is absent.
           DEV_EXISTS=$(gh api repos/Mohsannaeem/axi_stream_uvc/branches \
             --jq '[.[] | select(.name=="dev")] | length')
 

@@ -1,18 +1,17 @@
 name: Sync Submodules
 
-# Bumps the axi_stream_uvc submodule pointer in this repo whenever the
-# sub-repo's main branch advances beyond the currently pinned commit.
+# Bumps all submodule pointers (eda_buddy, dummy_uvm, axi_stream_uvc)
+# in this repo whenever any sub-repo's tracked branch advances beyond
+# the currently pinned commit.
 #
 # Triggers:
-#   - Daily at 19:30 UTC (30 min after subrepo-prs, midnight PKT + 30 min)
+#   - Daily at 19:30 UTC (00:30 PKT — 30 min after subrepo-prs)
 #   - Manual via workflow_dispatch
-#   - Optionally: repository_dispatch from axi_stream_uvc CI
-#       (axi_stream_uvc can call: gh api repos/Mohsannaeem/verification_ai_skills
-#        /dispatches -f event_type=submodule-updated)
+#   - repository_dispatch from any sub-repo CI (event_type: submodule-updated)
 #
 # Secret required: EDA_BUDDY_PAT
 #   Fine-grained PAT with Contents (read+write) on verification_ai_skills
-#   and Contents (read) on axi_stream_uvc.
+#   and Contents (read) on eda_buddy, dummy_uvm, axi_stream_uvc.
 
 on:
   schedule:
@@ -31,11 +30,11 @@ on:
 jobs:
 
   # ─────────────────────────────────────────────────────────────────────────────
-  sync-axi-stream-uvc:
-    name: Bump uvc/axi_stream_uvc to latest main
+  sync-eda-buddy:
+    name: Bump eda_buddy to latest main
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout verification_ai_skills with submodules
+      - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.EDA_BUDDY_PAT }}
@@ -47,17 +46,105 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Check current vs remote submodule SHA
+      - name: Check current vs remote SHA
+        id: check
+        run: |
+          CURRENT=$(git -C eda_buddy rev-parse HEAD)
+          REMOTE=$(git ls-remote git@github.com:Mohsannaeem/eda_buddy.git refs/heads/main \
+                   | awk '{print $1}')
+          echo "Pinned : ${CURRENT}"
+          echo "Remote : ${REMOTE}"
+          if [ "$CURRENT" = "$REMOTE" ] || [ -z "$REMOTE" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update submodule pointer
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          git submodule update --remote eda_buddy
+          NEW_SHA=$(git -C eda_buddy rev-parse HEAD)
+          git add eda_buddy
+          git commit -m "chore: bump eda_buddy submodule to ${NEW_SHA:0:7}"
+          git push origin main
+          echo "eda_buddy bumped to ${NEW_SHA}"
+
+      - name: Already up to date
+        if: steps.check.outputs.up_to_date == 'true'
+        run: echo "eda_buddy is already at latest main — nothing to do."
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  sync-dummy-uvm:
+    name: Bump dummy_uvm to latest master
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.EDA_BUDDY_PAT }}
+          submodules: true
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check current vs remote SHA
+        id: check
+        run: |
+          CURRENT=$(git -C dummy_uvm rev-parse HEAD)
+          REMOTE=$(git ls-remote git@github.com:Mohsannaeem/dummy_uvm.git refs/heads/master \
+                   | awk '{print $1}')
+          echo "Pinned : ${CURRENT}"
+          echo "Remote : ${REMOTE}"
+          if [ "$CURRENT" = "$REMOTE" ] || [ -z "$REMOTE" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update submodule pointer
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          git submodule update --remote dummy_uvm
+          NEW_SHA=$(git -C dummy_uvm rev-parse HEAD)
+          git add dummy_uvm
+          git commit -m "chore: bump dummy_uvm submodule to ${NEW_SHA:0:7}"
+          git push origin main
+          echo "dummy_uvm bumped to ${NEW_SHA}"
+
+      - name: Already up to date
+        if: steps.check.outputs.up_to_date == 'true'
+        run: echo "dummy_uvm is already at latest master — nothing to do."
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  sync-axi-stream-uvc:
+    name: Bump uvc/axi_stream_uvc to latest main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.EDA_BUDDY_PAT }}
+          submodules: true
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check current vs remote SHA
         id: check
         run: |
           CURRENT=$(git -C uvc/axi_stream_uvc rev-parse HEAD)
-          REMOTE=$(git ls-remote git@github.com:Mohsannaeem/axi_stream_uvc.git HEAD \
+          REMOTE=$(git ls-remote git@github.com:Mohsannaeem/axi_stream_uvc.git refs/heads/main \
                    | awk '{print $1}')
-          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
-          echo "remote=${REMOTE}"   >> "$GITHUB_OUTPUT"
           echo "Pinned : ${CURRENT}"
           echo "Remote : ${REMOTE}"
-          if [ "$CURRENT" = "$REMOTE" ]; then
+          if [ "$CURRENT" = "$REMOTE" ] || [ -z "$REMOTE" ]; then
             echo "up_to_date=true" >> "$GITHUB_OUTPUT"
           else
             echo "up_to_date=false" >> "$GITHUB_OUTPUT"
@@ -68,16 +155,11 @@ jobs:
         run: |
           git submodule update --remote uvc/axi_stream_uvc
           NEW_SHA=$(git -C uvc/axi_stream_uvc rev-parse HEAD)
-          SHORT=${NEW_SHA:0:7}
           git add uvc/axi_stream_uvc
-          git commit -m "chore: bump axi_stream_uvc submodule to ${SHORT}
-
-          Auto-updated by sync-submodules workflow.
-          Previous: ${{ steps.check.outputs.current }}
-          New:      ${NEW_SHA}"
+          git commit -m "chore: bump axi_stream_uvc submodule to ${NEW_SHA:0:7}"
           git push origin main
-          echo "Submodule bumped to ${NEW_SHA}"
+          echo "axi_stream_uvc bumped to ${NEW_SHA}"
 
-      - name: No update needed
+      - name: Already up to date
         if: steps.check.outputs.up_to_date == 'true'
-        run: echo "uvc/axi_stream_uvc is already pinned to the latest main — nothing to do."
+        run: echo "uvc/axi_stream_uvc is already at latest main — nothing to do."
