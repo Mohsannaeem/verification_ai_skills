@@ -154,7 +154,7 @@ The skill is not simply asking the model to "summarize requirements." It enforce
 - The signal direction table is **role-aware**: if the Verification Role is Master, then signals the VIP drives are Output; signals it observes are Input. The DUT always plays the opposite role.
 - A **Mermaid architecture diagram** is auto-generated using the `generate_uvm_mermaid` MCP tool, showing the full UVM containment hierarchy (Test → Env → Agent → Driver/Monitor/Scoreboard).
 
-The output is a structured YAML file at `verf_plan_reports/verif_plan_<protocol>_v<X_Y>.yaml`, and a professional PDF report rendered via `convert_plan_to_pdf`.
+The output is a structured YAML file (`verif_plan_<protocol>_v<X_Y>.yaml`) and a professional PDF report rendered via `convert_plan_to_pdf`. See [`examples/plan/`](examples/plan/) for an annotated sample plan you can read right now.
 
 **Protocol-Specific Cheat Sheets**
 
@@ -286,9 +286,13 @@ verification_ai_skills/
 │       ├── uvm_mermaid_gen.py
 │       └── vector_index.py
 │
+├── examples/                          ← Demo spec + sample plan (start here)
+│   ├── README.md                      ← Step-by-step walkthrough of the example
+│   ├── spec/simple_axi_stream_spec.md ← Demo input: readable protocol specification
+│   └── plan/verif_plan_axi_stream_master_example.yaml  ← Demo output: sample plan
 ├── dummy_uvm/                         ← UVM component templates (blueprint source)
-├── Output/                            ← Generated UVM testbenches land here
-├── verf_plan_reports/                 ← Generated YAML plans and PDF reports
+├── Output/                            ← Generated UVM testbenches land here (gitignored)
+├── verf_plan_reports/                 ← Generated YAML plans and PDF reports (gitignored)
 ├── vector_db/                         ← Persisted LlamaIndex vector databases
 ├── json/                              ← Knowledge Graph JSON files
 ├── markdown/                          ← Extracted Markdown files

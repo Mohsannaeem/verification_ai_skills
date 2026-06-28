@@ -1,0 +1,240 @@
+project: "AXI4-Stream Master VIP Verification Plan"
+version: "1.0"
+verification_role: "Master"
+protocol_version: "AXI4-Stream"
+
+# ─────────────────────────────────────────────────────────────────
+# NOTE: This is a trimmed example showing the plan structure.
+# A real AI-generated plan contains 12+ requirements and 48+ test
+# cases. See README.md for the complete run output.
+# ─────────────────────────────────────────────────────────────────
+
+uvm_environment_diagram: |
+  graph TD
+    subgraph Test["uvm_test (axi_stream_master_vip_base_test)"]
+      subgraph Env["uvm_env (axi_stream_master_vip_env)"]
+        subgraph Agent["uvm_agent (axi_stream_master_vip_agent)"]
+          DRV["uvm_driver\naxi_stream_master_vip_driver"]
+          MON["uvm_monitor\naxi_stream_master_vip_monitor"]
+          SQR["uvm_sequencer\naxi_stream_master_vip_sequencer"]
+        end
+        SB["uvm_scoreboard\naxi_stream_master_vip_scoreboard"]
+      end
+    end
+    SEQ["uvm_sequence\naxi_stream_master_vip_seq_item"]
+    IF["Interface\naxi_stream_master_vip_if"]
+    DUT["DUT (Slave)"]
+    SQR -->|"TLM seq"| DRV
+    DRV -->|"drives"| IF
+    MON -->|"samples"| IF
+    IF -->|"AXI-Stream bus"| DUT
+    MON -->|"ap"| SB
+    SEQ -.->|"start_item"| SQR
+
+test_requirements:
+  - id: "REQ_MST_01"
+    feature: "Handshake"
+    sub_feature: "TVALID Stability"
+    name: "TVALID and payload signals shall remain stable once asserted"
+    spec_ref: "Section 3.1, Rule 3.1.1"
+    description: |
+      Once TVALID is driven HIGH, the Master VIP shall hold TVALID and all
+      associated payload signals (TDATA, TSTRB, TKEEP, TLAST, TID, TDEST,
+      TUSER) stable until the rising clock edge where the handshake completes
+      (both TVALID and TREADY HIGH simultaneously). Premature deassertion of
+      TVALID constitutes a conformance violation and may corrupt in-flight data.
+
+      Verification strategy: Drive TVALID and inject a random back-pressure
+      stall from the slave side for 1–32 cycles. Monitor that TVALID and all
+      sideband signals remain constant during the stall window. Negative tests
+      inject early TVALID deassert via the drop_valid_early violation knob.
+
+  - id: "REQ_MST_02"
+    feature: "Handshake"
+    sub_feature: "TREADY Independence"
+    name: "Master shall not wait for TREADY before asserting TVALID"
+    spec_ref: "Section 3.1, Rule 3.1.3"
+    description: |
+      A circular dependency where TVALID is gated by TREADY constitutes a
+      deadlock condition that can stall the interface indefinitely. The Master
+      shall assert TVALID based solely on data availability, independent of
+      the current TREADY state.
+
+      Verification strategy: Drive TVALID before TREADY is asserted. Monitor
+      for TVALID assertion latency > 0 cycles after data is available.
+
+  - id: "REQ_MST_03"
+    feature: "Packet Framing"
+    sub_feature: "TLAST Assertion"
+    name: "TLAST shall be asserted exactly on the final beat of each packet"
+    spec_ref: "Section 4.1, Rules 4.1.1–4.1.2"
+    description: |
+      TLAST defines the logical packet boundary. Asserting TLAST too early
+      truncates the packet. Failing to assert TLAST causes the Slave to
+      misidentify packet boundaries, corrupting all subsequent packets.
+      Single-beat packets (packet_length=1) must assert TLAST on their only
+      beat.
+
+      Verification strategy: Send variable-length packets (1–256 beats) and
+      verify TLAST is asserted only on beat N for an N-beat packet. Check
+      that single-beat edge case is covered explicitly.
+
+  - id: "REQ_MST_04"
+    feature: "Byte Qualifiers"
+    sub_feature: "TKEEP / TSTRB Dependency"
+    name: "TSTRB=1 requires TKEEP=1; TKEEP=0 with TSTRB=0 signals null termination"
+    spec_ref: "Section 4.2–4.3, Rules 4.2.3, 4.3.1"
+    description: |
+      TSTRB=1 on a byte lane while TKEEP=0 for that same lane is an illegal
+      combination. The byte qualifier dependency (TKEEP qualifies TSTRB)
+      forms a two-level validity hierarchy. Null termination — TKEEP all-zeros
+      with TSTRB all-zeros and TLAST asserted — is a legal signaling mechanism
+      for end-of-stream.
+
+      Verification strategy: Positive tests verify null termination packets
+      transfer cleanly. Negative tests inject TSTRB=1/TKEEP=0 on random byte
+      lanes and verify the scoreboard raises a VIOLATION flag.
+
+  - id: "REQ_MST_05"
+    feature: "Reset"
+    sub_feature: "TVALID Deassert During Reset"
+    name: "Master shall deassert TVALID during reset and for one cycle after"
+    spec_ref: "Section 6, Rule 6.1"
+    description: |
+      Asserting TVALID during reset may cause the Slave to latch invalid data.
+      Any transfer in progress when reset is asserted is considered abandoned
+      and the partial data is lost. The one-cycle post-reset deassert provides
+      time for the interface to settle.
+
+      Verification strategy: Assert mid-transfer reset and verify TVALID goes
+      LOW within the same cycle. Verify no further transfers attempt until at
+      least one clock after reset deasserts.
+
+test_cases:
+  - id: "TC_MST_001"
+    scenario: "Single-beat packet, no back-pressure. Assert TVALID and TREADY simultaneously, verify handshake completes in 1 cycle. TLAST=1 on beat 0. TKEEP=all-ones, TSTRB=all-ones. Randomize TDATA."
+    mapping: ["REQ_MST_01", "REQ_MST_03"]
+
+  - id: "TC_MST_002"
+    scenario: "Single-beat packet with extended TREADY stall (8–32 cycles). Assert TVALID, then hold TREADY LOW for a randomized stall count before asserting. Verify TVALID and TDATA remain stable throughout the stall window."
+    mapping: ["REQ_MST_01"]
+
+  - id: "TC_MST_003"
+    scenario: "Multi-beat packet (16 beats). Assert TVALID for each beat. TREADY is always HIGH (no stalls). Verify TLAST asserted only on beat 15, not before."
+    mapping: ["REQ_MST_01", "REQ_MST_03"]
+
+  - id: "TC_MST_004"
+    scenario: "Multi-beat packet (64 beats) with random per-beat TREADY deasserts (50% stall probability). Verify payload stability on all stall cycles. Verify handshake completes correctly on each beat."
+    mapping: ["REQ_MST_01", "REQ_MST_02"]
+
+  - id: "TC_MST_005"
+    scenario: "TVALID pre-assertion before TREADY. Assert TVALID with TREADY initially LOW. TREADY asserts 4 cycles later. Verify TVALID was asserted before TREADY (no circular dependency)."
+    mapping: ["REQ_MST_02"]
+
+  - id: "TC_MST_006"
+    scenario: "Back-to-back packets (continuous streaming). Send 10 consecutive packets without deasserting TVALID between TLAST and the next packet's first beat. Verify each packet boundary is correctly framed."
+    mapping: ["REQ_MST_03"]
+
+  - id: "TC_MST_007"
+    scenario: "Null termination packet. Send a single-beat packet with TKEEP=0, TSTRB=0, TLAST=1. Verify the scoreboard does not flag this as a TSTRB violation."
+    mapping: ["REQ_MST_04"]
+
+  - id: "TC_MST_008"
+    scenario: "Negative: inject TSTRB=1 on byte lane 0 while TKEEP[0]=0, TLAST=1. All other lanes have TKEEP=TSTRB=0. Verify the scoreboard raises TSTRB_TKEEP_VIOLATION."
+    mapping: ["REQ_MST_04"]
+
+  - id: "TC_MST_009"
+    scenario: "Variable partial bytes on last beat: 32-bit bus, 3 valid bytes. TKEEP=4'b0111, TSTRB=4'b0111, TLAST=1. First 2 beats are full (TKEEP=4'b1111). Verify no false violations."
+    mapping: ["REQ_MST_04"]
+
+  - id: "TC_MST_010"
+    scenario: "Mid-transfer reset: start a 16-beat packet, assert reset after beat 4. Verify TVALID is deasserted within the same cycle as reset. Verify the interface recovers and a new transfer can be started after reset deasserts."
+    mapping: ["REQ_MST_05"]
+
+  - id: "TC_MST_011"
+    scenario: "Post-reset recovery: after reset deasserts, hold TVALID LOW for exactly 1 cycle, then start a new packet. Verify first packet after reset completes cleanly."
+    mapping: ["REQ_MST_05"]
+
+  - id: "TC_MST_012"
+    scenario: "Fully random packet: randomize all of packet_length (1–256), TDATA, TKEEP, TSTRB (with TSTRB ≤ TKEEP constraint), TID, TDEST, stall_cycles_per_beat. Run 50 iterations. Verify zero violations."
+    mapping: ["REQ_MST_01", "REQ_MST_03", "REQ_MST_04"]
+
+coverage_groups:
+  - name: "cg_tvalid_stability"
+    description: "Covers TVALID stall duration distribution: no stall, 1–4 cycles, 5–16 cycles, 17+ cycles"
+    mapping: ["REQ_MST_01"]
+
+  - name: "cg_packet_length"
+    description: "Covers packet length bins: 1 beat (single), 2–8 (short), 9–64 (medium), 65–256 (long)"
+    mapping: ["REQ_MST_03"]
+
+  - name: "cg_tkeep_tstrb"
+    description: "Covers byte qualifier combinations: all-ones, partial (last beat), null-term (all-zeros), illegal inject (TSTRB=1, TKEEP=0)"
+    mapping: ["REQ_MST_04"]
+
+  - name: "cg_reset"
+    description: "Covers reset scenarios: no in-flight, mid-packet reset, post-reset recovery timing"
+    mapping: ["REQ_MST_05"]
+
+interface_signals:
+  - name: "TVALID"
+    direction: "Output"
+    width: "1"
+    description: "Transfer valid. Driven by the Master VIP to signal that payload signals are stable."
+  - name: "TREADY"
+    direction: "Input"
+    width: "1"
+    description: "Transfer ready. Observed from the DUT Slave to indicate readiness to accept data."
+  - name: "TDATA"
+    direction: "Output"
+    width: "DATA_WIDTH"
+    description: "Data payload driven by the Master VIP. Stable while TVALID is asserted."
+  - name: "TSTRB"
+    direction: "Output"
+    width: "DATA_WIDTH/8"
+    description: "Byte strobe. 1 = data byte, 0 = position byte. Requires TKEEP=1 when TSTRB=1."
+  - name: "TKEEP"
+    direction: "Output"
+    width: "DATA_WIDTH/8"
+    description: "Byte qualifier. 1 = byte is part of stream. TKEEP=0 on non-last beats is illegal."
+  - name: "TLAST"
+    direction: "Output"
+    width: "1"
+    description: "Packet boundary. Asserted on the final beat of every logical packet."
+  - name: "TID"
+    direction: "Output"
+    width: "ID_WIDTH"
+    description: "Stream identifier. Stable for the entire duration of a packet."
+  - name: "TDEST"
+    direction: "Output"
+    width: "DEST_WIDTH"
+    description: "Destination routing field. Stable for the entire duration of a packet."
+  - name: "TUSER"
+    direction: "Output"
+    width: "USER_WIDTH"
+    description: "User-defined sideband. Protocol does not interpret this field."
+
+directory_structure:
+  root: "axi_stream_master_vip_tb/"
+  folders:
+    - top:
+        - axi_stream_master_vip_pkg.sv
+        - axi_stream_master_vip_defines.sv
+        - axi_stream_master_vip_if.sv
+        - axi_stream_master_vip_tb_top.sv
+        - axi_stream_master_vip_test.sv
+    - master_agent:
+        - axi_stream_master_vip_driver.sv
+        - axi_stream_master_vip_monitor.sv
+        - axi_stream_master_vip_sequencer.sv
+        - axi_stream_master_vip_agent.sv
+        - axi_stream_master_vip_agent_config.sv
+        - axi_stream_master_vip_callback.sv
+    - env:
+        - axi_stream_master_vip_scoreboard.sv
+        - axi_stream_master_vip_env.sv
+        - axi_stream_master_vip_env_config.sv
+    - sequences:
+        - axi_stream_master_vip_seq_item.sv
+        - axi_stream_master_vip_base_sequence.sv
+        - axi_stream_master_vip_test_sequences.sv

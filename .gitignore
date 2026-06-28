@@ -31,6 +31,9 @@ Output/
 json/
 markdown/
 
+# Generated verification reports (use examples/ for committed reference outputs)
+verf_plan_reports/
+
 # Temp / log files
 startup_err.txt
 
