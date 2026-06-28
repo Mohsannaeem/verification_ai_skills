@@ -193,7 +193,10 @@ def generate_pdf(input_path, output_pdf_path):
                     pdf.cell(0, 6, safe_str(f"{folder_prefix}{k}/"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                     
                     # File branching
-                    files = [x.strip() for x in v.split(',') if x.strip()]
+                    if isinstance(v, list):
+                        files = v
+                    else:
+                        files = [x.strip() for x in str(v).split(',') if x.strip()]
                     for i, fname in enumerate(files):
                         is_last_file = (i == len(files) - 1)
                         spacing = "    " if is_last_folder else "|   "

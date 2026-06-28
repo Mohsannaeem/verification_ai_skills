@@ -5,7 +5,7 @@ description: Complete LlamaIndex-powered vector index pipeline for offline seman
 
 # LlamaIndex Vector Index Skill
 
-This skill defines the **canonical pipeline** for building and querying a semantic vector database from any PDF specification. It is designed to be consumed by other skills (e.g., `verification_planning`) as a zero-token, offline RAG backend.
+This skill defines the **canonical pipeline** for building and querying a semantic vector database from any PDF specification. It is designed to be consumed by other skills (e.g., `uvc_planning`) as a zero-token, offline RAG backend.
 
 > [!IMPORTANT]
 > All three stages MUST be executed in order for a new PDF. If a `vector_db/` directory for the target PDF already exists, skip straight to **Stage 3 (Query)**.

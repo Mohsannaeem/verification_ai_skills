@@ -16,10 +16,10 @@ The orchestrator tracks the health and readiness of all underlying skills:
 | :--- | :--- | :--- |
 | **pdf_to_markdown** | [Ready/Missing] | Raw PDF available in `specs/`. |
 | **vector_index** | [Ready/Missing] | JSON Knowledge Graph in `.agent/vector_db/`. |
-| **verification_planning** | [Draft/Final] | High-density YAML plan in `verf_plan_reports/`. |
-| **uvm_generator** | [Partial/Complete] | Blueprint YAML + Source Code in `Output/`. |
+| **uvc_planning** | [Draft/Final] | High-density YAML plan in `verf_plan_reports/`. |
+| **uvc_generator** | [Partial/Complete] | Blueprint YAML + Source Code in `Output/`. |
 | **eda_yaml_generator** | [Sync/Stale] | `build.yaml` and `run.yaml` in VIP `yamls/` folder. |
-| **verif_orchestrator** | [Monitoring] | This SKILL. |
+| **uvc_orchestrator** | [Monitoring] | This SKILL. |
 
 ## 1. System State Audit (The Sentinel Pass)
 Before taking any action, the orchestrator MUST perform a multi-dimensional sweep to catalog the current progress:
@@ -40,10 +40,10 @@ The Orchestrator decides the next "Best Move" based on the following hierarchy:
 | Condition | Action / Skill to Invoke | Rationale |
 | :--- | :--- | :--- |
 | No Vector DB or stale spec | `vector_index` | Cannot plan without high-fidelity spec retrieval. |
-| Vector DB exists, but no YAML plan | `verification_planning` | Must establish requirements before writing code. |
-| YAML Plan version < Spec version | `verification_planning` | Plan is stale; needs "Iterative Discovery" pass. |
-| YAML Plan exists, but `Output/` is empty | `uvm_generator` | Transition from blueprint to SystemVerilog. |
-| SV Code exists, but misses YAML requirements | `uvm_generator` (Pass 2) | Incremental synthesis to close implementation gaps. |
+| Vector DB exists, but no YAML plan | `uvc_planning` | Must establish requirements before writing code. |
+| YAML Plan version < Spec version | `uvc_planning` | Plan is stale; needs "Iterative Discovery" pass. |
+| YAML Plan exists, but `Output/` is empty | `uvc_generator` | Transition from blueprint to SystemVerilog. |
+| SV Code exists, but misses YAML requirements | `uvc_generator` (Pass 2) | Incremental synthesis to close implementation gaps. |
 | Code synthesized, but YAMLs out of sync | `eda_yaml_generator` | Synchronize build/run manifests with generated code. |
 | Compilation / Simulation failures | `EDA Buddy Debug Flow` | Fix infrastructure or protocol handshake logic. |
 
@@ -51,7 +51,7 @@ The Orchestrator decides the next "Best Move" based on the following hierarchy:
 The Orchestrator is responsible for identifying "Low Fidelity" artifacts. For every completed task, it must ask:
 
 ### 3a. Planning Improvements:
-- **Requirement Density**: Did the `verification_planning` skill hit the minimum threshold (10 REQs, 30 TCs)? If not, trigger **Pass 4 (Drill Down)**.
+- **Requirement Density**: Did the `uvc_planning` skill hit the minimum threshold (10 REQs, 30 TCs)? If not, trigger **Pass 4 (Drill Down)**.
 - **Traceability Gaps**: Are there requirements without mapped coverage groups?
 - **Protocol Depth**: Did we cover negative scenarios (error injection) or only "Happy Path"?
 
@@ -68,18 +68,18 @@ The Orchestrator is responsible for identifying "Low Fidelity" artifacts. For ev
 Since the `make` utility may be unavailable in some environments, the Orchestrator uses a direct extraction tool to run simulations:
 
 ### Technical Engine: `eda_buddy_executor.py`
-Located at: `.agent/skills/verif_orchestrator/scripts/eda_buddy_executor.py`
+Located at: `.agent/skills/uvc_orchestrator/scripts/eda_buddy_executor.py`
 
 **Usage Patterns**:
-1.  **List Tests**: `python .agent/skills/verif_orchestrator/scripts/eda_buddy_executor.py --makefile eda_buddy/run/Makefile --list-tests`
-2.  **Execute Build**: `python .agent/skills/verif_orchestrator/scripts/eda_buddy_executor.py --makefile eda_buddy/run/Makefile --run-target questa_build_axi_stream`
-3.  **Execute Test**: `python .agent/skills/verif_orchestrator/scripts/eda_buddy_executor.py --makefile eda_buddy/run/Makefile --run-target questa_run_axi_stream_axi_stream_master_tc_mst_001_test`
+1.  **List Tests**: `python .agent/skills/uvc_orchestrator/scripts/eda_buddy_executor.py --makefile eda_buddy/run/Makefile --list-tests`
+2.  **Execute Build**: `python .agent/skills/uvc_orchestrator/scripts/eda_buddy_executor.py --makefile eda_buddy/run/Makefile --run-target questa_build_axi_stream`
+3.  **Execute Test**: `python .agent/skills/uvc_orchestrator/scripts/eda_buddy_executor.py --makefile eda_buddy/run/Makefile --run-target questa_run_axi_stream_axi_stream_master_tc_mst_001_test`
 
 ## 4. Operational Loop (Prompt-Driven Execution)
 The Orchestrator does not run blindly. It follows a **"Check → Prompt → Delegate"** loop:
 1.  **Status Display**: Show the user the current status of all skill requirements (see Section 1).
 2.  **User Prompt**: Ask the user: "The current state is [X]. Would you like to proceed with [Skill Y] or refine [Feature Z]?"
-3.  **Sub-skill Prompts**: When a sub-skill (e.g., `uvm_generator`) is invoked, the Orchestrator ensures all secondary prompts (like "Review the generated code") are presented clearly and handled before transitioning to the next state.
+3.  **Sub-skill Prompts**: When a sub-skill (e.g., `uvc_generator`) is invoked, the Orchestrator ensures all secondary prompts (like "Review the generated code") are presented clearly and handled before transitioning to the next state.
 
 ## 5. Artifact: The Verification Roadmap
 Every time the orchestrator is invoked for a major transition, it MUST generate/update a `verification_roadmap.md` in the artifacts directory. This document **MUST** use the following tabular format:
@@ -98,6 +98,6 @@ Every time the orchestrator is invoked for a major transition, it MUST generate/
 ### Next Steps & Gap Analysis
 | Priority | Action | Skill | Target Artifact |
 | :--- | :--- | :--- | :--- |
-| P1 | Implement Missing Tests| `uvm_generator` | `sequences/` |
+| P1 | Implement Missing Tests| `uvc_generator` | `sequences/` |
 | P2 | Refresh Manifests | `eda_yaml_generator`| `yamls/` |
 | P3 | Run Smoke Test | `CLI Execution` | `logs/` |

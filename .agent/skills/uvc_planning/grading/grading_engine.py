@@ -68,7 +68,7 @@ class FinalEnterpriseGrader:
 
 if __name__ == "__main__":
     t_p = sys.argv[1]
-    g_p = "d:/Verification/VERIFICATION_PLANNER/.agent/skills/verification_planning/grading/golden_data/golden_axi_stream_plan.yaml"
+    g_p = "d:/Verification/VERIFICATION_PLANNER/.agent/skills/uvc_planning/grading/golden_data/golden_axi_stream_plan.yaml"
     
     grader = FinalEnterpriseGrader(t_p, g_p)
     if grader.load_plans():

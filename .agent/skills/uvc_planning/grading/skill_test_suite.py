@@ -6,7 +6,7 @@ import sys
 # Configuration
 MIN_PASS_SCORE = 85.0
 LATEST_PLAN = "d:/Verification/VERIFICATION_PLANNER/verf_plan_reports/verif_plan_axi4_stream_v5_0.yaml"
-GRADING_ENGINE = "d:/Verification/VERIFICATION_PLANNER/.agent/skills/verification_planning/grading/grading_engine.py"
+GRADING_ENGINE = "d:/Verification/VERIFICATION_PLANNER/.agent/skills/uvc_planning/grading/grading_engine.py"
 
 def run_grading_test():
     print(f"--- Verification Planning Skill Grading Suite ---")

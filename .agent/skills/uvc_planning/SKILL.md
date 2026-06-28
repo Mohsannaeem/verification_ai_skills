@@ -1,5 +1,5 @@
 ---
-name: verification_planning
+name: uvc_planning
 description: Ultra-precise agentic protocol for generating enterprise-grade functional verification plans. Focuses on configuration-aware signal population and total spec-to-coverage traceability.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: uvm_generator
+name: uvc_generator
 description: Automated UVM Verification Environment Synthesis. Transforms YAML engineering reports into structured SystemVerilog code by merging protocol specifications with boilerplate blueprints. Also auto-generates EDA Buddy build.yaml and run.yaml manifests.
 ---
 
