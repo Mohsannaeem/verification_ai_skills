@@ -134,11 +134,34 @@ directory_structure:
     - master_agent: "List EXACT filenames: e.g., <interface>_<role>_driver.sv, <interface>_<role>_monitor.sv, <interface>_<role>_agent_config.sv, <interface>_<role>_callback.sv"
     - env: "List EXACT filenames: e.g., <interface>_<role>_scoreboard.sv, <interface>_<role>_env_config.sv"
     - sequences: "List sequences matching the <interface>_<role> nomenclature: e.g., <interface>_<role>_base_sequence.sv, <interface>_<role>_seq_item.sv"
-    - top: "List the simulation top level files: e.g., <interface>_<role>_tb_top.sv, <interface>_<role>_test.sv, <interface>_<role>_defines.sv"
+    - top: "List the simulation top level files: e.g., <interface>_<role>_tb_top.sv, <interface>_<role>_test.sv, <interface>_<role>_pkg.sv, <interface>_<role>_if.sv, <interface>_<role>_defines.sv"
 code_snippets:
   - title: "Filename.sv (Architecture Blueprint)"
     code: |
       [Structured blueprint defining COMPONENT, MEMBERS, and LOGIC mapping to sub-prompt rules]
+```
+
+## 7a. Architecture Rule: defines.sv + Parameterized Interface
+
+> [!IMPORTANT]
+> **ALWAYS** plan for a `*_defines.sv` file. It is the **single source of truth** for all width and capability constants. Changing one macro value there propagates to every component at next elaboration.
+
+### File responsibilities
+
+| File | Role |
+|---|---|
+| `*_defines.sv` | All `` `define `` macros: `AXI_DATA_W`, `AXI_ID_W`, `AXI_HAS_PAR`, etc. — wrapped in an `` `ifndef `` guard. |
+| `*_if.sv` | Parameterized interface. `` `include `` defines.sv at the top; parameter defaults reference the macros (e.g., `parameter int DATA_W = \`AXI_DATA_W`). |
+| `*_pkg.sv` | Imports uvm_pkg, `` `include `` uvm_macros.svh, then immediately `` `include `` defines.sv before any class includes. All included classes see the macros. Default `typedef` aliases at the bottom. |
+| `agent_config.sv` | Virtual handle MUST carry explicit `#(.DATA_W(\`AXI_DATA_W), ...)` binding — never the bare unparameterized form. |
+| `*_tb_top.sv` | `` `include `` defines.sv at the top. Interface instance MUST carry explicit `#(.DATA_W(\`AXI_DATA_W), ...)` — never bare. |
+
+### Width propagation rule
+The explicit `#(.DATA_W(\`AXI_DATA_W))` binding in BOTH `agent_config.sv` (virtual handle type) and `*_tb_top.sv` (interface instantiation) is **mandatory**. Without it, the interface uses its own hardcoded default and the macro change does NOT propagate to signal widths.
+
+Default `typedef` aliases appear at the bottom of the package for behavioral factory overrides:
+```
+axi_stream_mst_seq_item_t::type_id::set_type_override(my_item::type_id::get());
 ```
 
 ## 7b. UVM Structural Constraints
