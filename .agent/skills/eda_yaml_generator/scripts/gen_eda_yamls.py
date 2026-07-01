@@ -91,7 +91,7 @@ def deep_merge(existing, discovered):
 
 # ── YAML builders ────────────────────────────────────────────────────────────
 
-def generate_build_yaml(root, data, component, existing=None):
+def generate_build_yaml(root, data, component, existing=None, dep_yaml_paths=None):
     abs_root = normalize(os.path.abspath(root))
     discovered = {
         "project": {
@@ -112,6 +112,11 @@ def generate_build_yaml(root, data, component, existing=None):
                 "modules":    data['modules'],
                 "dut": []
             }
+        },
+        # dependencies.build: list of external build.yaml paths whose interfaces+packages
+        # must be compiled before this component's own sources.
+        "dependencies": {
+            "build": [normalize(os.path.abspath(p)) for p in (dep_yaml_paths or [])]
         },
         "tool_settings": {
             "vcs": {
@@ -219,6 +224,9 @@ def main():
     parser.add_argument("--component",         required=False, help="Component name (defaults to dir basename)")
     parser.add_argument("--project-structure", default=DEFAULT_PROJECT_STRUCT,
                         help="Path to eda_buddy/project_structure.yaml")
+    parser.add_argument("--dep", action="append", metavar="BUILD_YAML",
+                        help="Path to an existing build.yaml whose interfaces+packages must "
+                             "be compiled before this component.  Repeat for multiple deps.")
     args = parser.parse_args()
 
     root = os.path.abspath(args.output_dir)
@@ -234,9 +242,19 @@ def main():
     ex_build = yaml.safe_load(open(build_path)) if os.path.exists(build_path) else None
     ex_run   = yaml.safe_load(open(run_path))   if os.path.exists(run_path)   else None
 
+    # Validate --dep paths
+    dep_paths = []
+    for p in (args.dep or []):
+        abs_p = os.path.abspath(p)
+        if not os.path.exists(abs_p):
+            print(f"[WARN] --dep file not found, skipping: {abs_p}")
+        else:
+            dep_paths.append(abs_p)
+            print(f"[DEP]  Registered dependency: {abs_p}")
+
     print(f"[STATUS] Scanning: {root}")
     fs_data    = scan_uvm_directory(root)
-    build_data = generate_build_yaml(root, fs_data, comp, ex_build)
+    build_data = generate_build_yaml(root, fs_data, comp, ex_build, dep_paths)
     run_data   = generate_run_yaml(fs_data['test_classes'], ex_run)
 
     write_yaml(build_path, build_data, "EDA Buddy Build Manifest (Auto-Generated)")

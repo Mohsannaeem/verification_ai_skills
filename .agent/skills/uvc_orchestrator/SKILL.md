@@ -57,7 +57,7 @@ The Orchestrator is responsible for identifying "Low Fidelity" artifacts. For ev
 
 ### 3b. Implementation Improvements:
 - **Synthesis Fidelity**: Do the generated SV files match the blueprint `code_snippets`?
-- **Boilerplate Bloat**: Are we using macros effectively in `defines.sv` to simplify cross-component logic?
+- **Boilerplate Bloat**: Are structural constants (`AXI_DATA_W`, etc.) correctly placed as `` `define `` macros in `*_defines.sv`? Is that file `` `include ``d at the top of `*_if.sv` and at the top of `*_pkg.sv` (before any class includes)? Does `agent_config.sv` carry the explicit `#(.DATA_W(\`AXI_DATA_W) ...)` binding on the virtual handle, and does `*_tb_top.sv` carry the same explicit binding on the interface instance? A bare unparameterized `virtual axi_stream_..._if vif` or interface instantiation without `#(...)` is a structural fidelity failure.
 - **Logging Clarity**: Are `uvm_info` messages providing enough debug context for failures?
 
 ### 3c. Workflow Improvements:

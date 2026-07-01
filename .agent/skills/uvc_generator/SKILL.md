@@ -29,13 +29,130 @@ This skill utilizes the Agent's domain expertise in UVM and SystemVerilog to imp
 1.  **Structural Reference**: Read the corresponding blueprint in `dummy_uvm/` (for new files) or the existing file in `Output/` (for updates).
 2.  **Expert Implementation**:
     *   **Logic Synthesis**: Read the `code_snippets` and `test_requirements` from the YAML. Translate these into high-fidelity, synthesizable SystemVerilog.
-    *   **Macro-Based Architecture**: Use preprocessor `` `define `` macros (not `parameter`) in the `<protocol>_<role>_defines.sv` file for all architectural settings (widths, IDs, feature toggles). This ensures global visibility across all classes without complex package-scoping or redundant inclusions, resolving "Undefined variable" errors in modular flows.
-    *   **Configuration-Driven Logic**: Move all protocol feature flags into the `<protocol>_<role>_agent_config` class, initialized via the architectural macros. Components must reference these flags via their `cfg` handle for dynamic control.
+    *   **Define-Based Architecture with Parameterized Interface**: ALL structural constants MUST live in `*_defines.sv` as `` `define `` macros. The interface uses these macros as parameter defaults. The package includes the defines file before any class includes, making macros available to every included class. This is the **single source of truth** — change ONE macro value and every component (seq_item fields, driver helpers, interface instance, virtual handle type) picks it up at next elaboration.
+
+        *   **`*_defines.sv`** — one `ifndef` guard, all width and capability constraints:
+            ```systemverilog
+            `ifndef <PROTOCOL>_<ROLE>_VIP_DEFINES
+            `define <PROTOCOL>_<ROLE>_VIP_DEFINES
+
+            `define <PROTOCOL>_DATA_W            32
+            `define <PROTOCOL>_ADDR_W            32
+            `define <PROTOCOL>_ID_W              8
+            `define <PROTOCOL>_USER_W            4
+            `define <PROTOCOL>_HAS_PAR           1
+            `define <PROTOCOL>_HAS_WAKE          1
+            `define CLK_PERIOD_PS         10
+            `define <PROTOCOL>_WATCHDOG_MAX   100_000
+            `define MAX_PACKET_BEATS      256
+            `define <PROTOCOL>_STALL_MAX      100
+
+            `endif
+            ```
+
+        *   **`*_if.sv`** — parameterized, with defaults driven by the macros (`` `include `` the defines file at the very top, before the interface declaration):
+            ```systemverilog
+            `include "<protocol>_<role>_vip_defines.sv"
+            interface <protocol>_<role>_vip_if #(
+              parameter int DATA_W   = `<PROTOCOL>_DATA_W,
+              parameter int ADDR_W   = `<PROTOCOL>_ADDR_W,
+              parameter int ID_W     = `<PROTOCOL>_ID_W,
+              parameter int USER_W   = `<PROTOCOL>_USER_W,
+              parameter bit HAS_PAR  = `<PROTOCOL>_HAS_PAR,
+              parameter bit HAS_WAKE = `<PROTOCOL>_HAS_WAKE
+            )(input logic ACLK, input logic ARESETn);
+              logic [DATA_W-1:0]     DATA;
+              logic [ADDR_W-1:0]     ADDR;
+              logic [ID_W-1:0]       ID;
+              logic [USER_W-1:0]     USER;
+            endinterface
+            ```
+
+        *   **`*_pkg.sv`** — includes defines FIRST so all class files see the macros; class files use backtick macros for widths:
+            ```systemverilog
+            package <protocol>_<role>_vip_pkg;
+              import uvm_pkg::*; `include "uvm_macros.svh"
+
+              // ── Width/capability constants (macro-scoped from defines.sv) ───
+              `include "<protocol>_<role>_vip_defines.sv"
+
+              // ── VIP class files (use `<PROTOCOL>_DATA_W etc. from above) ──────────
+              `include "<protocol>_<role>_vip_seq_item.sv"
+              `include "<protocol>_<role>_vip_agent_config.sv"
+              // ... all other includes ...
+
+              // ── Default typedefs (behavioral factory override aliases) ──────
+              typedef <protocol>_<role>_vip_seq_item  <protocol>_<role>_seq_item_t;
+              typedef <protocol>_<role>_vip_agent     <protocol>_<role>_agent_t;
+              typedef <protocol>_<role>_vip_env       <protocol>_<role>_env_t;
+            endpackage
+            ```
+
+        *   **Class files use backtick macros** (they are in scope because the package included defines.sv before them):
+            ```systemverilog
+            // <protocol>_<role>_vip_seq_item.sv
+            rand logic [`<PROTOCOL>_DATA_W-1:0]  data[$]; // Queue-based payload
+            rand logic [`<PROTOCOL>_ADDR_W-1:0]  addr;
+            rand logic [`<PROTOCOL>_ID_W-1:0]    id;
+            rand logic [`<PROTOCOL>_USER_W-1:0]  user;
+            ```
+
+        *   **`agent_config.sv`** — virtual handle MUST explicitly bind every interface parameter to its macro. Since agent_config is compiled inside the package body, the defines macros are already in scope:
+            ```systemverilog
+            class <protocol>_<role>_vip_agent_config extends uvm_object;
+              `uvm_object_utils(<protocol>_<role>_vip_agent_config)
+              virtual <protocol>_<role>_vip_if #(
+                .DATA_W  (`<PROTOCOL>_DATA_W),
+                .ADDR_W  (`<PROTOCOL>_ADDR_W),
+                .ID_W    (`<PROTOCOL>_ID_W),
+                .USER_W  (`<PROTOCOL>_USER_W),
+                .HAS_PAR (`<PROTOCOL>_HAS_PAR),
+                .HAS_WAKE(`<PROTOCOL>_HAS_WAKE)
+              ) vif;
+              uvm_active_passive_enum is_active        = UVM_ACTIVE;
+              bit  has_parity          = `<PROTOCOL>_HAS_PAR;
+              bit  has_twakeup         = `<PROTOCOL>_HAS_WAKE;
+              bit  enable_tracker      = 0;
+              bit  continuous_pkt_mode = 0;
+              int  watchdog_cycles     = `<PROTOCOL>_WATCHDOG_MAX;
+              int  max_packet_beats    = `MAX_PACKET_BEATS;
+            endclass
+            ```
+
+        *   **`*_tb_top.sv`** — `` `include `` defines at the top; interface instance MUST explicitly bind every parameter to its macro so width changes propagate:
+            ```systemverilog
+            `timescale 1ns/1ps
+            `include "<protocol>_<role>_vip_defines.sv"
+            import <protocol>_<role>_vip_pkg::*;
+            import uvm_pkg::*; `include "uvm_macros.svh"
+
+            module <protocol>_<role>_vip_tb_top;
+              // ...
+              <protocol>_<role>_vip_if #(
+                .DATA_W  (`<PROTOCOL>_DATA_W),
+                .ADDR_W  (`<PROTOCOL>_ADDR_W),
+                .ID_W    (`<PROTOCOL>_ID_W),
+                .USER_W  (`<PROTOCOL>_USER_W),
+                .HAS_PAR (`<PROTOCOL>_HAS_PAR),
+                .HAS_WAKE(`<PROTOCOL>_HAS_WAKE)
+              ) dut_if (.ACLK(ACLK), .ARESETn(ARESETn));
+              // ...
+            endmodule
+            ```
+
+        > [!IMPORTANT]
+        > The explicit `#(.DATA_W(`<PROTOCOL>_DATA_W) ...)` binding in BOTH `agent_config.sv` (virtual handle) and `*_tb_top.sv` (interface instance) is **mandatory**. Without it, changing the macro value does NOT propagate to the interface — the interface would use its own hardcoded default instead. Bare `virtual <protocol>_<role>_vip_if vif;` or `<protocol>_<role>_vip_if dut_if(...)` without the `#(...)` parameter list is **forbidden**.
+
+    *   **Configuration-Driven Logic**: Agent config carries ONLY runtime knobs (active/passive, enable_tracker, watchdog, stall limits). It MUST NOT contain signal-width fields — those are structural and live in the defines macros / interface parameters:
+            ```systemverilog
+            // ← NO data_width, id_width integer fields — those are interface parameters
+            // ← Use `<PROTOCOL>_HAS_PAR macro (not a field) as the default for has_parity
+            ```
     *   **Incremental Edit**: If editing an existing file, use `replace_file_content` to update only the modified logic or parameters, preserving stable boilerplate to save tokens.
     *   **Handshake Precision**: Implement exact signal-level handshaking (e.g., `VALID`/`READY` toggling, reset synchronization, and parity calculations).
     *   **Data Integrity**: Ensure the `scoreboard` and `monitor` correctly handle packet boundaries (`TLAST`) and byte qualifiers (`TKEEP`/`TSTRB`).
     *   **High-Density Diagnostic Logging**: Implement comprehensive UVM reporting in `drivers` and `sequences`.
-        *   **Verbosity Compliance**: Use `UVM_MEDIUM` for packet headers and `UVM_HIGH/FULL` for detailed member dumps.
+        *   **Verbosity Compliance**: Adhere strictly to the logging levels defined in the [coding_guideline](sub_skills/coding_guideline/SKILL.md) sub-skill (e.g., `UVM_MEDIUM` for standard transaction tracking and packet headers, and `UVM_HIGH`/`UVM_FULL` for cycle-by-cycle or member-level dumps during debugging).
         *   **Multi-Line Formatting**: Use structured, multi-line `` `uvm_info `` messages instead of single-line strings for readability.
         *   **Flow Tracking**: Include local packet counters and clear boundary markers (e.g., `[START PACKET X]`, `[END PACKET X]`) to trace the lifecycle of each transaction.
         *   **Full Member Visibility**: Ensure all transaction properties (data, addr, control signals, parity) are printed during the handshake.
@@ -52,7 +169,9 @@ This skill utilizes the Agent's domain expertise in UVM and SystemVerilog to imp
         *   Add "violation knobs" (e.g., `rand bit drop_valid_early`) to `seq_item`.
         *   Implement conditional logic in the `driver` to trigger these violations when the knob is active.
         *   This ensures the Monitor is exercised against invalid protocol transitions without manual testbench hacking.
-    *   **Burst & Stream Synthesis**: Sequences for streaming protocols MUST:
+    *   **Burst & Stream Synthesis**: Sequences for streaming and burst protocols MUST:
+        *   **Queue-Based Payload**: Represent payloads using a data queue in the `seq_item` (e.g., `rand logic [`<PROTOCOL>_DATA_W-1:0] data[$]`).
+        *   **Sequence-Driven Population**: The sequence MUST populate the data queue based on the resolved packet length and related packet parameters (such as `burst_mode`, `burst_length`, and `packet_length`).
         *   Iterate beat-by-beat to support per-beat randomization (interleaving).
         *   Ensure `TLAST` (or equivalent) is only driven on the final beat of a logical transaction.
         *   Support "Null Termination" (TLAST=1 with minimal/no data) as a distinct scenario.
@@ -68,15 +187,15 @@ This skill utilizes the Agent's domain expertise in UVM and SystemVerilog to imp
         2.  Read the `test_requirements` to extract specific constraints (e.g., TDATA widths, TID ranges, delay cycles, or parity corruption).
         3.  Translate the `scenario` description into sequence logic (e.g., a "burst" requires multiple beats before `TLAST`, "interleaving" requires switching `TID` between beats).
     *   **Naming Convention**:
-        *   Sequence: `<protocol>_<role>_<tc_id>_seq` (e.g., `axi_stream_master_tc_mst_001_seq`).
-        *   Test: `<protocol>_<role>_<tc_id>_test` (e.g., `axi_stream_master_tc_mst_001_test`).
+        *   Sequence: `<protocol>_<role>_<tc_id>_seq` (e.g., `<protocol>_<role>_tc_mst_001_seq`).
+        *   Test: `<protocol>_<role>_<tc_id>_test` (e.g., `<protocol>_<role>_tc_mst_001_test`).
     *   **Handshake Consistency**: Ensure that negative test cases (e.g., dropping `TVALID`) are implemented via driver callbacks or sequence-item overrides if supported.
 
 4.  **Consistency Check**: Ensure all class names, signal handles, and configuration objects are consistent across the entire generated file set.
 5.  **File Generation/Update**: Use `write_to_file` for new files and `replace_file_content` for surgical updates to existing files.
 
 ## 3. Directory Structure & Serialization
-- **Root Container**: The output must be written into a protocol-specific root folder within `Output/` (e.g., `Output/axi_stream_master_vip_tb/`), as defined in the YAML `directory_structure.root` property.
+- **Root Container**: The output must be written into a protocol-specific root folder within `Output/` (e.g., `Output/<protocol>_<role>_vip_tb/`), as defined in the YAML `directory_structure.root` property.
 - **Token Efficiency**: Do not `view_file` the entire directory if only one component (e.g., `driver`) needs an update based on a YAML change.
 - **Folder Nomenclature**: Create subdirectories within the root container following the `directory_structure.folders` property, ensuring consistent nomenclature.
 
@@ -113,3 +232,42 @@ This skill utilizes the Agent's domain expertise in UVM and SystemVerilog to imp
 | seq_item holes | driver holes | coverage orphans |
 | P1: fix now | P2: fix or escalate | P3-P4: defer, ask USER |
 ```
+
+---
+
+## 7. Interface Port Correctness Rules (Mandatory)
+
+Apply these rules to every `*_if.sv` file generated or modified by this skill.
+
+### 7.1 Clock port type — always `logic`, never `bit`
+```systemverilog
+// WRONG — 2-state type; X/Z map silently to 0
+interface foo_if(input bit ACLK);
+
+// CORRECT — 4-state type; propagates X/Z faithfully
+interface foo_if(input logic ACLK);
+```
+- All clock and enable signals that arrive from outside the interface **must** use `logic`.
+- `bit` is only acceptable for internal state variables that are never driven from the DUT or TB top.
+
+### 7.2 Reset — always a port, never an internal signal
+```systemverilog
+// WRONG — ARESETn as an internal logic; tb_top must directly assign interface members
+interface foo_if(input logic ACLK);
+  logic ARESETn;          // requires tb_top to do: vif.ARESETn = reset; (multi-driver risk)
+
+// CORRECT — ARESETn as a proper input port
+interface foo_if(input logic ACLK, input logic ARESETn);
+```
+- Active-low reset (`ARESETn`) **must** be an `input logic` port on every interface.
+- After changing the interface port signature, update every instantiation site (tb_top, any wrapper) to pass the signal as a named port connection.
+
+### 7.3 Clocking block membership
+- Clocking blocks must list `ARESETn` as `input` in the monitor clocking block only (it is never driven by the driver).
+- No clocking block should list `ARESETn` as `output`.
+
+### 7.4 After interface changes — mandatory follow-on
+When any interface port list changes, this skill **must**:
+1. Update the interface instantiation in the corresponding `*_tb_top.sv` to use the new port signature.
+2. Update any parent system testbench/TB tops (e.g., `<protocol>_fifo_tb_top.sv`) if they instantiate the modified interface.
+3. Verify that no `always_comb` or `assign` in any tb_top drives an interface signal that is now a proper port — remove those workarounds.
